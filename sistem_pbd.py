@@ -2,9 +2,24 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Konfigurasi Halaman
-st.set_page_config(page_title="Sistem PBD Pintar", layout="wide")
-st.title("🎓 Sistem Analisis Pentaksiran Bilik Darjah (PBD) Pintar")
+# 1. Konfigurasi Halaman (Buang 'Pintar' pada page_title)
+st.set_page_config(page_title="Sistem PBD", layout="wide")
+
+# --- KEMAS KINI: LETAK LOGO DAN TAJUK BARU ---
+col_logo, col_title = st.columns([1, 10])
+
+with col_logo:
+    # Pastikan fail 'Logo SMKDSO.jpg' ada dalam folder yang sama dengan fail ini
+    try:
+        st.image("Logo SMKDSO.jpg", width=100)
+    except:
+        st.error("Logo tidak dijumpai")
+
+with col_title:
+    # Tajuk baru tanpa perkataan 'Pintar'
+    st.title("Sistem Analisis Pentaksiran Bilik Darjah (PBD)")
+    
+st.markdown("---")
 
 # 2. Penjanaan Data Pelajar (Dari Google Sheets)
 @st.cache_data(ttl=60)
@@ -37,28 +52,22 @@ with tab1:
         if not murid.empty:
             st.success(f"🧑‍🎓 Rekod ditemui: **{murid['Nama'].values[0]}** | Tingkatan: **{murid['Tingkatan'].values[0]}**")
             
-            # Bentuk jadual TP untuk semua subjek
             tp_data = murid[senarai_subjek].T.reset_index()
             tp_data.columns = ['Subjek', 'Tahap Penguasaan (TP)']
             
-            # Buang subjek yang tiada markah (kosong atau 'None')
             tp_data = tp_data.dropna()
             tp_data = tp_data[tp_data['Tahap Penguasaan (TP)'].astype(str).str.strip().str.lower() != 'none']
             
-            # Pastikan format TP adalah nombor bagi membolehkan graf berfungsi
             tp_data['Tahap Penguasaan (TP)'] = pd.to_numeric(tp_data['Tahap Penguasaan (TP)'])
             
-            # --- BAHAGIAN ATAS: JADUAL KEPUTUSAN DI TENGAH ---
             st.markdown("<h3 style='text-align: center; margin-top: 20px;'>Keputusan PBD Keseluruhan</h3>", unsafe_allow_html=True)
             
             col_kiri, col_tengah, col_kanan = st.columns([1, 2, 1])
             
             with col_tengah:
-                # Salinan khas untuk jadual (Tukar nombor ke integer dan teks)
                 jadual_paparan = tp_data.copy()
                 jadual_paparan['Tahap Penguasaan (TP)'] = jadual_paparan['Tahap Penguasaan (TP)'].astype(int).astype(str)
                 
-                # KOD BARU: String HTML tunggal tanpa jarak kosong untuk elak ralat Markdown
                 html_table = "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; margin-bottom: 20px;'>"
                 html_table += "<thead><tr style='border-bottom: 2px solid #ddd;'>"
                 html_table += "<th style='padding: 12px; text-align: center; color: #555;'>Subjek</th>"
@@ -72,13 +81,10 @@ with tab1:
                     html_table += "</tr>"
                     
                 html_table += "</tbody></table>"
-                
-                # Paparkan HTML di Streamlit
                 st.markdown(html_table, unsafe_allow_html=True)
             
             st.divider() 
             
-            # --- BAHAGIAN BAWAH: GRAF RADAR DI TENGAH ---
             col_g1, col_g2, col_g3 = st.columns([1, 3, 1])
             
             with col_g2:
@@ -132,6 +138,29 @@ with tab2:
             st.plotly_chart(fig_line, use_container_width=True)
 
         st.write("### Senarai Pelajar & Keputusan")
-        st.dataframe(df_tingkatan, use_container_width=True, hide_index=True)
+        
+        # --- KEMAS KINI JADUAL HTML UNTUK PAKSA KE TENGAH ---
+        df_kemas = df_tingkatan.fillna("-").replace("None", "-")
+        
+        # Tukar semua isi kandungan ke bentuk string (teks) 
+        df_kemas = df_kemas.astype(str)
+        
+        # Jana HTML Jadual dengan CSS memaksa ke tengah
+        jadual_html = df_kemas.style.set_properties(**{
+            'text-align': 'center', 
+            'border': '1px solid #e6e6eb',
+            'padding': '10px',
+            'font-family': 'sans-serif'
+        }).set_table_styles([{
+            'selector': 'th', 
+            'props': [('text-align', 'center'), ('background-color', '#f0f2f6'), ('padding', '10px'), ('border', '1px solid #e6e6eb')]
+        }, {
+            'selector': 'table',
+            'props': [('width', '100%'), ('border-collapse', 'collapse')]
+        }]).hide(axis="index").to_html()
+        
+        # Paparkan HTML tulen ke dalam Streamlit
+        st.markdown(jadual_html, unsafe_allow_html=True)
+        
     else:
         st.error("Ralat: Lajur 'Tingkatan' tidak dijumpai. Sila semak Google Sheets anda.")
