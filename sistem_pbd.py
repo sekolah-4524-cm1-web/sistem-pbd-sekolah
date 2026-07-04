@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Konfigurasi Halaman (Buang 'Pintar' pada page_title)
+# 1. Konfigurasi Halaman 
 st.set_page_config(page_title="Sistem PBD", layout="wide")
 
-# --- KEMAS KINI: LETAK LOGO DAN TAJUK BARU ---
+# --- LETAK LOGO DAN TAJUK BARU ---
 col_logo, col_title = st.columns([1, 10])
 
 with col_logo:
@@ -16,7 +16,6 @@ with col_logo:
         st.error("Logo tidak dijumpai")
 
 with col_title:
-    # Tajuk baru tanpa perkataan 'Pintar'
     st.title("Sistem Analisis Pentaksiran Bilik Darjah (PBD)")
     
 st.markdown("---")
@@ -139,11 +138,11 @@ with tab2:
 
         st.write("### Senarai Pelajar & Keputusan")
         
-        # --- KEMAS KINI JADUAL HTML UNTUK PAKSA KE TENGAH ---
+        # --- KEMAS KINI: BUANG PERPULUHAN DAN PAKSA KE TENGAH ---
         df_kemas = df_tingkatan.fillna("-").replace("None", "-")
         
-        # Tukar semua isi kandungan ke bentuk string (teks) 
-        df_kemas = df_kemas.astype(str)
+        # Tukar ke teks dan buang ".0" di hujung nilai secara automatik
+        df_kemas = df_kemas.astype(str).replace(r'\.0$', '', regex=True)
         
         # Jana HTML Jadual dengan CSS memaksa ke tengah
         jadual_html = df_kemas.style.set_properties(**{
