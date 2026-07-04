@@ -2,14 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Konfigurasi Halaman 
+# 1. Konfigurasi Halaman
 st.set_page_config(page_title="Sistem PBD", layout="wide")
 
-# --- LETAK LOGO DAN TAJUK BARU ---
+# --- LETAK LOGO DAN TAJUK ---
 col_logo, col_title = st.columns([1, 10])
 
 with col_logo:
-    # Pastikan fail 'Logo SMKDSO.jpg' ada dalam folder yang sama dengan fail ini
     try:
         st.image("Logo SMKDSO.jpg", width=100)
     except:
@@ -20,22 +19,34 @@ with col_title:
     
 st.markdown("---")
 
-# 2. Penjanaan Data Pelajar (Dari Google Sheets)
-@st.cache_data(ttl=60)
-def load_data():
-    # SILA MASUKKAN PAUTAN GOOGLE SHEETS (.CSV) ANDA DI BAWAH INI
-    sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR45w6BLBf-xTzMNEIsemaSHS-9ZOHU4ri5C_l9l9Gathd3Cqci6GN4kL0v_4rjmTs1GdD_j8Mc6pm8/pub?output=csv"
-    
-    df = pd.read_csv(sheet_url, dtype={'IC': str}) 
-    df.columns = df.columns.str.strip() 
-    return df
-
-df = load_data()
+# =========================================================
+# 2. SEKSYEN MUAT NAIK FAIL (PENGGANTI GOOGLE SHEETS / IDME)
+# =========================================================
+st.sidebar.header("📁 Pengurusan Data")
+uploaded_file = st.sidebar.file_uploader(
+    "Muat naik fail CSV yang dimuat turun dari idMe KPM:", 
+    type=["csv"]
+)
 
 # Senarai Subjek Terkini
 senarai_subjek = ['BM', 'BI', 'Matematik', 'Sains', 'Sejarah', 'Pend Islam', 'BA', 'Geografi', 'ASK', 'PSV', 'PM', 'PJK']
 
-# 3. Struktur Tab Antaramuka
+# Jika fail belum dimuat naik, paparkan panduan arahan
+if uploaded_file is None:
+    st.info("💡 **Panduan Memulakan Sistem:** Sila muat turun fail data PBD (format .CSV) daripada portal **idMe KPM** terlebih dahulu, kemudian muat naik fail tersebut pada bahagian **Sidebar di sebelah kiri** untuk melihat analisis.")
+    st.stop() # Hentikan proses kod di bawah sehingga fail dimuat naik
+
+# Proses membaca fail setelah dimuat naik oleh pengguna
+try:
+    df = pd.read_csv(uploaded_file, dtype={'IC': str}) 
+    df.columns = df.columns.str.strip() 
+except Exception as e:
+    st.error(f"Ralat membaca fail: {e}. Sila pastikan fail adalah format CSV yang betul.")
+    st.stop()
+
+# =========================================================
+# 3. STRUKTUR TAB ANTARAMUKA (Hanya berjalan jika data wujud)
+# =========================================================
 tab1, tab2 = st.tabs(["🔍 Semakan Individu (Carian IC)", "📊 Analisis Pencapaian Tingkatan"])
 
 # ==========================================
@@ -94,7 +105,7 @@ with tab1:
                 st.plotly_chart(fig_radar, use_container_width=True)
                 
         else:
-            st.error("No. Kad Pengenalan tidak ditemui dalam sistem. Sila semak semula.")
+            st.error("No. Kad Pengenalan tidak ditemui dalam fail. Sila semak semula.")
 
 # ==========================================
 # TAB 2: ANALISIS TINGKATAN
@@ -138,13 +149,9 @@ with tab2:
 
         st.write("### Senarai Pelajar & Keputusan")
         
-        # --- KEMAS KINI: BUANG PERPULUHAN DAN PAKSA KE TENGAH ---
         df_kemas = df_tingkatan.fillna("-").replace("None", "-")
-        
-        # Tukar ke teks dan buang ".0" di hujung nilai secara automatik
         df_kemas = df_kemas.astype(str).replace(r'\.0$', '', regex=True)
         
-        # Jana HTML Jadual dengan CSS memaksa ke tengah
         jadual_html = df_kemas.style.set_properties(**{
             'text-align': 'center', 
             'border': '1px solid #e6e6eb',
@@ -158,8 +165,7 @@ with tab2:
             'props': [('width', '100%'), ('border-collapse', 'collapse')]
         }]).hide(axis="index").to_html()
         
-        # Paparkan HTML tulen ke dalam Streamlit
         st.markdown(jadual_html, unsafe_allow_html=True)
         
     else:
-        st.error("Ralat: Lajur 'Tingkatan' tidak dijumpai. Sila semak Google Sheets anda.")
+        st.error("Ralat: Lajur 'Tingkatan' tidak dijumpai di dalam fail CSV anda.")
