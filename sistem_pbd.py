@@ -24,28 +24,25 @@ st.markdown("---")
 # =========================================================
 st.sidebar.header("📁 Pengurusan Data")
 uploaded_file = st.sidebar.file_uploader(
-    "Muat naik fail CSV yang dimuat turun dari idMe KPM:", 
+    "Muat naik fail CSV (dari idMe):", 
     type=["csv"]
 )
 
 # Senarai Subjek Terkini
 senarai_subjek = ['BM', 'BI', 'Matematik', 'Sains', 'Sejarah', 'Pend Islam', 'BA', 'Geografi', 'ASK', 'PSV', 'PM', 'PJK']
 
-# Jika fail belum dimuat naik, paparkan panduan arahan
-if uploaded_file is None:
-    st.info("💡 **Panduan Memulakan Sistem:** Sila muat turun fail data PBD (format .CSV) daripada portal **idMe KPM** terlebih dahulu, kemudian muat naik fail tersebut pada bahagian **Sidebar di sebelah kiri** untuk melihat analisis.")
-    st.stop() # Hentikan proses kod di bawah sehingga fail dimuat naik
-
-# Proses membaca fail setelah dimuat naik oleh pengguna
-try:
-    df = pd.read_csv(uploaded_file, dtype={'IC': str}) 
-    df.columns = df.columns.str.strip() 
-except Exception as e:
-    st.error(f"Ralat membaca fail: {e}. Sila pastikan fail adalah format CSV yang betul.")
-    st.stop()
+# Pemprosesan Data
+df = None
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file, dtype={'IC': str}) 
+        df.columns = df.columns.str.strip() 
+        st.sidebar.success("✅ Fail berjaya dibaca!")
+    except Exception as e:
+        st.sidebar.error(f"Ralat membaca fail: {e}. Sila pastikan fail berformat CSV.")
 
 # =========================================================
-# 3. STRUKTUR TAB ANTARAMUKA (Hanya berjalan jika data wujud)
+# 3. STRUKTUR TAB ANTARAMUKA (Sentiasa Dipaparkan)
 # =========================================================
 tab1, tab2 = st.tabs(["🔍 Semakan Individu (Carian IC)", "📊 Analisis Pencapaian Tingkatan"])
 
@@ -54,58 +51,63 @@ tab1, tab2 = st.tabs(["🔍 Semakan Individu (Carian IC)", "📊 Analisis Pencap
 # ==========================================
 with tab1:
     st.header("Semakan Tahap Penguasaan (TP) Murid")
-    search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
     
-    if search_ic:
-        murid = df[df['IC'] == search_ic]
+    if df is None:
+        # Jika fail belum dimuat naik, tunjuk mesej ini
+        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk memulakan carian.")
+    else:
+        # Jika fail sudah ada, baru tunjuk kotak carian
+        search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
         
-        if not murid.empty:
-            st.success(f"🧑‍🎓 Rekod ditemui: **{murid['Nama'].values[0]}** | Tingkatan: **{murid['Tingkatan'].values[0]}**")
+        if search_ic:
+            murid = df[df['IC'] == search_ic]
             
-            tp_data = murid[senarai_subjek].T.reset_index()
-            tp_data.columns = ['Subjek', 'Tahap Penguasaan (TP)']
-            
-            tp_data = tp_data.dropna()
-            tp_data = tp_data[tp_data['Tahap Penguasaan (TP)'].astype(str).str.strip().str.lower() != 'none']
-            
-            tp_data['Tahap Penguasaan (TP)'] = pd.to_numeric(tp_data['Tahap Penguasaan (TP)'])
-            
-            st.markdown("<h3 style='text-align: center; margin-top: 20px;'>Keputusan PBD Keseluruhan</h3>", unsafe_allow_html=True)
-            
-            col_kiri, col_tengah, col_kanan = st.columns([1, 2, 1])
-            
-            with col_tengah:
-                jadual_paparan = tp_data.copy()
-                jadual_paparan['Tahap Penguasaan (TP)'] = jadual_paparan['Tahap Penguasaan (TP)'].astype(int).astype(str)
+            if not murid.empty:
+                st.success(f"🧑‍🎓 Rekod ditemui: **{murid['Nama'].values[0]}** | Tingkatan: **{murid['Tingkatan'].values[0]}**")
                 
-                html_table = "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; margin-bottom: 20px;'>"
-                html_table += "<thead><tr style='border-bottom: 2px solid #ddd;'>"
-                html_table += "<th style='padding: 12px; text-align: center; color: #555;'>Subjek</th>"
-                html_table += "<th style='padding: 12px; text-align: center; color: #555;'>Tahap Penguasaan (TP)</th>"
-                html_table += "</tr></thead><tbody>"
+                tp_data = murid[senarai_subjek].T.reset_index()
+                tp_data.columns = ['Subjek', 'Tahap Penguasaan (TP)']
                 
-                for _, row in jadual_paparan.iterrows():
-                    html_table += "<tr style='border-bottom: 1px solid #eee;'>"
-                    html_table += f"<td style='padding: 10px; text-align: center;'>{row['Subjek']}</td>"
-                    html_table += f"<td style='padding: 10px; text-align: center; font-weight: bold;'>{row['Tahap Penguasaan (TP)']}</td>"
-                    html_table += "</tr>"
+                tp_data = tp_data.dropna()
+                tp_data = tp_data[tp_data['Tahap Penguasaan (TP)'].astype(str).str.strip().str.lower() != 'none']
+                tp_data['Tahap Penguasaan (TP)'] = pd.to_numeric(tp_data['Tahap Penguasaan (TP)'])
+                
+                st.markdown("<h3 style='text-align: center; margin-top: 20px;'>Keputusan PBD Keseluruhan</h3>", unsafe_allow_html=True)
+                
+                col_kiri, col_tengah, col_kanan = st.columns([1, 2, 1])
+                
+                with col_tengah:
+                    jadual_paparan = tp_data.copy()
+                    jadual_paparan['Tahap Penguasaan (TP)'] = jadual_paparan['Tahap Penguasaan (TP)'].astype(int).astype(str)
                     
-                html_table += "</tbody></table>"
-                st.markdown(html_table, unsafe_allow_html=True)
-            
-            st.divider() 
-            
-            col_g1, col_g2, col_g3 = st.columns([1, 3, 1])
-            
-            with col_g2:
-                fig_radar = px.line_polar(tp_data, r='Tahap Penguasaan (TP)', theta='Subjek', line_close=True,
-                                          range_r=[0,6])
-                fig_radar.update_traces(fill='toself', line_color='#4CAF50')
-                fig_radar.update_layout(title_text="Profil Penguasaan Murid", title_x=0.5, font=dict(size=14))
-                st.plotly_chart(fig_radar, use_container_width=True)
+                    html_table = "<table style='width: 100%; border-collapse: collapse; font-family: sans-serif; margin-bottom: 20px;'>"
+                    html_table += "<thead><tr style='border-bottom: 2px solid #ddd;'>"
+                    html_table += "<th style='padding: 12px; text-align: center; color: #555;'>Subjek</th>"
+                    html_table += "<th style='padding: 12px; text-align: center; color: #555;'>Tahap Penguasaan (TP)</th>"
+                    html_table += "</tr></thead><tbody>"
+                    
+                    for _, row in jadual_paparan.iterrows():
+                        html_table += "<tr style='border-bottom: 1px solid #eee;'>"
+                        html_table += f"<td style='padding: 10px; text-align: center;'>{row['Subjek']}</td>"
+                        html_table += f"<td style='padding: 10px; text-align: center; font-weight: bold;'>{row['Tahap Penguasaan (TP)']}</td>"
+                        html_table += "</tr>"
+                        
+                    html_table += "</tbody></table>"
+                    st.markdown(html_table, unsafe_allow_html=True)
                 
-        else:
-            st.error("No. Kad Pengenalan tidak ditemui dalam fail. Sila semak semula.")
+                st.divider() 
+                
+                col_g1, col_g2, col_g3 = st.columns([1, 3, 1])
+                
+                with col_g2:
+                    fig_radar = px.line_polar(tp_data, r='Tahap Penguasaan (TP)', theta='Subjek', line_close=True,
+                                              range_r=[0,6])
+                    fig_radar.update_traces(fill='toself', line_color='#4CAF50')
+                    fig_radar.update_layout(title_text="Profil Penguasaan Murid", title_x=0.5, font=dict(size=14))
+                    st.plotly_chart(fig_radar, use_container_width=True)
+                    
+            else:
+                st.error("No. Kad Pengenalan tidak ditemui dalam fail. Sila semak semula.")
 
 # ==========================================
 # TAB 2: ANALISIS TINGKATAN
@@ -113,59 +115,64 @@ with tab1:
 with tab2:
     st.header("Analisis Mendalam Mengikut Tingkatan")
     
-    if 'Tingkatan' in df.columns:
-        senarai_tingkatan = df['Tingkatan'].dropna().unique()
-        pilihan_tingkatan = st.selectbox("Pilih Tingkatan:", senarai_tingkatan)
-        
-        df_tingkatan = df[df['Tingkatan'] == pilihan_tingkatan]
-        
-        st.write(f"### Analisis Keseluruhan bagi {pilihan_tingkatan}")
-        
-        df_melt = df_tingkatan.melt(id_vars=['IC', 'Nama', 'Tingkatan'], 
-                                    value_vars=senarai_subjek,
-                                    var_name='Subjek', value_name='TP')
-        
-        df_melt = df_melt.dropna(subset=['TP'])
-        df_melt = df_melt[df_melt['TP'].astype(str).str.strip().str.lower() != 'none']
-        
-        df_melt['TP'] = pd.to_numeric(df_melt['TP'], errors='coerce')
-        df_melt = df_melt.dropna(subset=['TP'])
-        
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            fig_bar = px.histogram(df_melt, x="Subjek", color="TP", barmode="group",
-                                   title="Taburan Tahap Penguasaan (TP) Mengikut Subjek",
-                                   category_orders={"TP": [1, 2, 3, 4, 5, 6]},
-                                   color_discrete_sequence=px.colors.sequential.Viridis)
-            st.plotly_chart(fig_bar, use_container_width=True)
-            
-        with col4:
-            purata_subjek = df_melt.groupby('Subjek')['TP'].mean().reset_index()
-            fig_line = px.bar(purata_subjek, x='Subjek', y='TP',
-                              title="Purata TP Keseluruhan Subjek", text_auto='.2f')
-            fig_line.update_layout(yaxis=dict(range=[0,6]))
-            st.plotly_chart(fig_line, use_container_width=True)
-
-        st.write("### Senarai Pelajar & Keputusan")
-        
-        df_kemas = df_tingkatan.fillna("-").replace("None", "-")
-        df_kemas = df_kemas.astype(str).replace(r'\.0$', '', regex=True)
-        
-        jadual_html = df_kemas.style.set_properties(**{
-            'text-align': 'center', 
-            'border': '1px solid #e6e6eb',
-            'padding': '10px',
-            'font-family': 'sans-serif'
-        }).set_table_styles([{
-            'selector': 'th', 
-            'props': [('text-align', 'center'), ('background-color', '#f0f2f6'), ('padding', '10px'), ('border', '1px solid #e6e6eb')]
-        }, {
-            'selector': 'table',
-            'props': [('width', '100%'), ('border-collapse', 'collapse')]
-        }]).hide(axis="index").to_html()
-        
-        st.markdown(jadual_html, unsafe_allow_html=True)
-        
+    if df is None:
+        # Jika fail belum dimuat naik, tunjuk mesej ini
+        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk melihat analisis penuh.")
     else:
-        st.error("Ralat: Lajur 'Tingkatan' tidak dijumpai di dalam fail CSV anda.")
+        # Jika fail sudah ada, teruskan proses analisis
+        if 'Tingkatan' in df.columns:
+            senarai_tingkatan = df['Tingkatan'].dropna().unique()
+            pilihan_tingkatan = st.selectbox("Pilih Tingkatan:", senarai_tingkatan)
+            
+            df_tingkatan = df[df['Tingkatan'] == pilihan_tingkatan]
+            
+            st.write(f"### Analisis Keseluruhan bagi {pilihan_tingkatan}")
+            
+            df_melt = df_tingkatan.melt(id_vars=['IC', 'Nama', 'Tingkatan'], 
+                                        value_vars=senarai_subjek,
+                                        var_name='Subjek', value_name='TP')
+            
+            df_melt = df_melt.dropna(subset=['TP'])
+            df_melt = df_melt[df_melt['TP'].astype(str).str.strip().str.lower() != 'none']
+            
+            df_melt['TP'] = pd.to_numeric(df_melt['TP'], errors='coerce')
+            df_melt = df_melt.dropna(subset=['TP'])
+            
+            col3, col4 = st.columns(2)
+            
+            with col3:
+                fig_bar = px.histogram(df_melt, x="Subjek", color="TP", barmode="group",
+                                       title="Taburan Tahap Penguasaan (TP) Mengikut Subjek",
+                                       category_orders={"TP": [1, 2, 3, 4, 5, 6]},
+                                       color_discrete_sequence=px.colors.sequential.Viridis)
+                st.plotly_chart(fig_bar, use_container_width=True)
+                
+            with col4:
+                purata_subjek = df_melt.groupby('Subjek')['TP'].mean().reset_index()
+                fig_line = px.bar(purata_subjek, x='Subjek', y='TP',
+                                  title="Purata TP Keseluruhan Subjek", text_auto='.2f')
+                fig_line.update_layout(yaxis=dict(range=[0,6]))
+                st.plotly_chart(fig_line, use_container_width=True)
+    
+            st.write("### Senarai Pelajar & Keputusan")
+            
+            df_kemas = df_tingkatan.fillna("-").replace("None", "-")
+            df_kemas = df_kemas.astype(str).replace(r'\.0$', '', regex=True)
+            
+            jadual_html = df_kemas.style.set_properties(**{
+                'text-align': 'center', 
+                'border': '1px solid #e6e6eb',
+                'padding': '10px',
+                'font-family': 'sans-serif'
+            }).set_table_styles([{
+                'selector': 'th', 
+                'props': [('text-align', 'center'), ('background-color', '#f0f2f6'), ('padding', '10px'), ('border', '1px solid #e6e6eb')]
+            }, {
+                'selector': 'table',
+                'props': [('width', '100%'), ('border-collapse', 'collapse')]
+            }]).hide(axis="index").to_html()
+            
+            st.markdown(jadual_html, unsafe_allow_html=True)
+            
+        else:
+            st.error("Ralat: Lajur 'Tingkatan' tidak dijumpai di dalam fail CSV anda.")
