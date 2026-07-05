@@ -10,6 +10,7 @@ col_logo, col_title = st.columns([1, 10])
 
 with col_logo:
     try:
+        # Pastikan fail 'Logo SMKDSO.jpg' ada dalam folder yang sama
         st.image("Logo SMKDSO.jpg", width=100)
     except:
         st.error("Logo tidak dijumpai")
@@ -29,27 +30,28 @@ uploaded_file = st.sidebar.file_uploader(
 )
 
 df = None
-senarai_subjek = [] # Dikosongkan dahulu
+senarai_subjek = [] # Dikosongkan dahulu sebagai persediaan
 
 if uploaded_file is not None:
     try:
+        # Membaca fail CSV
         df = pd.read_csv(uploaded_file, dtype={'IC': str}) 
         df.columns = df.columns.str.strip() 
         
-        # --- KEMAS KINI: PENGESANAN SUBJEK SECARA AUTOMATIK ---
-        # Senaraikan lajur maklumat asas pelajar yang BUKAN subjek
-        # Jika CSV anda ada lajur lain spt 'Jantina' atau 'Kelas', tambah di bawah:
-        lajur_asas_pelajar = ['Bil', 'Nama', 'IC', 'Tingkatan'] 
+        # --- PENGESANAN SUBJEK SECARA AUTOMATIK ---
+        # Tambah nama lajur di bawah jika ada maklumat bukan subjek yang lain
+        # Contoh: 'Jantina', 'Kaum', 'Kelas'
+        lajur_bukan_subjek = ['Bil', 'Nama', 'IC', 'Tingkatan'] 
         
-        # Sistem akan tapis dan ambil baki lajur sebagai senarai subjek
-        senarai_subjek = [kolom for kolom in df.columns if kolom not in lajur_asas_pelajar]
+        # Sistem menapis lajur dan mengambil baki lajur sebagai senarai subjek
+        senarai_subjek = [kolom for kolom in df.columns if kolom not in lajur_bukan_subjek]
         
-        st.sidebar.success("✅ Fail berjaya dibaca! Subjek dikesan secara automatik.")
+        st.sidebar.success(f"✅ Fail berjaya dibaca! {len(senarai_subjek)} subjek dikesan.")
     except Exception as e:
         st.sidebar.error(f"Ralat membaca fail: {e}. Sila pastikan fail berformat CSV.")
 
 # =========================================================
-# 3. STRUKTUR TAB ANTARAMUKA
+# 3. STRUKTUR TAB ANTARAMUKA (Sentiasa Dipaparkan)
 # =========================================================
 tab1, tab2 = st.tabs(["🔍 Semakan Individu (Carian IC)", "📊 Analisis Pencapaian Tingkatan"])
 
@@ -60,6 +62,7 @@ with tab1:
     st.header("Semakan Tahap Penguasaan (TP) Murid")
     
     if df is None:
+        # Mesej panduan jika tiada fail
         st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk memulakan carian.")
     else:
         search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
@@ -70,7 +73,7 @@ with tab1:
             if not murid.empty:
                 st.success(f"🧑‍🎓 Rekod ditemui: **{murid['Nama'].values[0]}** | Tingkatan: **{murid['Tingkatan'].values[0]}**")
                 
-                # Menggunakan senarai_subjek yang telah dikesan secara automatik
+                # Menggunakan senarai_subjek automatik
                 tp_data = murid[senarai_subjek].T.reset_index()
                 tp_data.columns = ['Subjek', 'Tahap Penguasaan (TP)']
                 
@@ -113,70 +116,4 @@ with tab1:
                     st.plotly_chart(fig_radar, use_container_width=True)
                     
             else:
-                st.error("No. Kad Pengenalan tidak ditemui dalam fail. Sila semak semula.")
-
-# ==========================================
-# TAB 2: ANALISIS TINGKATAN
-# ==========================================
-with tab2:
-    st.header("Analisis Mendalam Mengikut Tingkatan")
-    
-    if df is None:
-        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk melihat analisis penuh.")
-    else:
-        if 'Tingkatan' in df.columns:
-            senarai_tingkatan = df['Tingkatan'].dropna().unique()
-            pilihan_tingkatan = st.selectbox("Pilih Tingkatan:", senarai_tingkatan)
-            
-            df_tingkatan = df[df['Tingkatan'] == pilihan_tingkatan]
-            
-            st.write(f"### Analisis Keseluruhan bagi {pilihan_tingkatan}")
-            
-            df_melt = df_tingkatan.melt(id_vars=['IC', 'Nama', 'Tingkatan'], 
-                                        value_vars=senarai_subjek,
-                                        var_name='Subjek', value_name='TP')
-            
-            df_melt = df_melt.dropna(subset=['TP'])
-            df_melt = df_melt[df_melt['TP'].astype(str).str.strip().str.lower() != 'none']
-            
-            df_melt['TP'] = pd.to_numeric(df_melt['TP'], errors='coerce')
-            df_melt = df_melt.dropna(subset=['TP'])
-            
-            col3, col4 = st.columns(2)
-            
-            with col3:
-                fig_bar = px.histogram(df_melt, x="Subjek", color="TP", barmode="group",
-                                       title="Taburan Tahap Penguasaan (TP) Mengikut Subjek",
-                                       category_orders={"TP": [1, 2, 3, 4, 5, 6]},
-                                       color_discrete_sequence=px.colors.sequential.Viridis)
-                st.plotly_chart(fig_bar, use_container_width=True)
-                
-            with col4:
-                purata_subjek = df_melt.groupby('Subjek')['TP'].mean().reset_index()
-                fig_line = px.bar(purata_subjek, x='Subjek', y='TP',
-                                  title="Purata TP Keseluruhan Subjek", text_auto='.2f')
-                fig_line.update_layout(yaxis=dict(range=[0,6]))
-                st.plotly_chart(fig_line, use_container_width=True)
-    
-            st.write("### Senarai Pelajar & Keputusan")
-            
-            df_kemas = df_tingkatan.fillna("-").replace("None", "-")
-            df_kemas = df_kemas.astype(str).replace(r'\.0$', '', regex=True)
-            
-            jadual_html = df_kemas.style.set_properties(**{
-                'text-align': 'center', 
-                'border': '1px solid #e6e6eb',
-                'padding': '10px',
-                'font-family': 'sans-serif'
-            }).set_table_styles([{
-                'selector': 'th', 
-                'props': [('text-align', 'center'), ('background-color', '#f0f2f6'), ('padding', '10px'), ('border', '1px solid #e6e6eb')]
-            }, {
-                'selector': 'table',
-                'props': [('width', '100%'), ('border-collapse', 'collapse')]
-            }]).hide(axis="index").to_html()
-            
-            st.markdown(jadual_html, unsafe_allow_html=True)
-            
-        else:
-            st.error("Ralat: Lajur 'Tingkatan' tidak dijumpai di dalam fail CSV anda.")
+                st.error("No. Kad
