@@ -20,7 +20,7 @@ with col_title:
 st.markdown("---")
 
 # =========================================================
-# 2. SEKSYEN MUAT NAIK FAIL (PENGGANTI GOOGLE SHEETS / IDME)
+# 2. SEKSYEN MUAT NAIK FAIL & PENGESANAN SUBJEK AUTOMATIK
 # =========================================================
 st.sidebar.header("📁 Pengurusan Data")
 uploaded_file = st.sidebar.file_uploader(
@@ -28,21 +28,28 @@ uploaded_file = st.sidebar.file_uploader(
     type=["csv"]
 )
 
-# Senarai Subjek Terkini
-senarai_subjek = ['BM', 'BI', 'Matematik', 'Sains', 'Sejarah', 'Pend Islam', 'BA', 'Geografi', 'ASK', 'PSV', 'PM', 'PJK']
-
-# Pemprosesan Data
 df = None
+senarai_subjek = [] # Dikosongkan dahulu
+
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file, dtype={'IC': str}) 
         df.columns = df.columns.str.strip() 
-        st.sidebar.success("✅ Fail berjaya dibaca!")
+        
+        # --- KEMAS KINI: PENGESANAN SUBJEK SECARA AUTOMATIK ---
+        # Senaraikan lajur maklumat asas pelajar yang BUKAN subjek
+        # Jika CSV anda ada lajur lain spt 'Jantina' atau 'Kelas', tambah di bawah:
+        lajur_asas_pelajar = ['Bil', 'Nama', 'IC', 'Tingkatan'] 
+        
+        # Sistem akan tapis dan ambil baki lajur sebagai senarai subjek
+        senarai_subjek = [kolom for kolom in df.columns if kolom not in lajur_asas_pelajar]
+        
+        st.sidebar.success("✅ Fail berjaya dibaca! Subjek dikesan secara automatik.")
     except Exception as e:
         st.sidebar.error(f"Ralat membaca fail: {e}. Sila pastikan fail berformat CSV.")
 
 # =========================================================
-# 3. STRUKTUR TAB ANTARAMUKA (Sentiasa Dipaparkan)
+# 3. STRUKTUR TAB ANTARAMUKA
 # =========================================================
 tab1, tab2 = st.tabs(["🔍 Semakan Individu (Carian IC)", "📊 Analisis Pencapaian Tingkatan"])
 
@@ -53,10 +60,8 @@ with tab1:
     st.header("Semakan Tahap Penguasaan (TP) Murid")
     
     if df is None:
-        # Jika fail belum dimuat naik, tunjuk mesej ini
         st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk memulakan carian.")
     else:
-        # Jika fail sudah ada, baru tunjuk kotak carian
         search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
         
         if search_ic:
@@ -65,6 +70,7 @@ with tab1:
             if not murid.empty:
                 st.success(f"🧑‍🎓 Rekod ditemui: **{murid['Nama'].values[0]}** | Tingkatan: **{murid['Tingkatan'].values[0]}**")
                 
+                # Menggunakan senarai_subjek yang telah dikesan secara automatik
                 tp_data = murid[senarai_subjek].T.reset_index()
                 tp_data.columns = ['Subjek', 'Tahap Penguasaan (TP)']
                 
@@ -116,10 +122,8 @@ with tab2:
     st.header("Analisis Mendalam Mengikut Tingkatan")
     
     if df is None:
-        # Jika fail belum dimuat naik, tunjuk mesej ini
         st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk melihat analisis penuh.")
     else:
-        # Jika fail sudah ada, teruskan proses analisis
         if 'Tingkatan' in df.columns:
             senarai_tingkatan = df['Tingkatan'].dropna().unique()
             pilihan_tingkatan = st.selectbox("Pilih Tingkatan:", senarai_tingkatan)
