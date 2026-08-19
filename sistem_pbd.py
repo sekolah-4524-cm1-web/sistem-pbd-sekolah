@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import pdfplumber
 
-# 1. Konfigurasi Halaman (Menggunakan tema moden)
+# 1. Konfigurasi Halaman
 st.set_page_config(page_title="Sistem PBD SMKDSO", layout="wide")
 
-# --- SUNTIKAN GAYA CSS UNTUK TAMPILAN PREMUM ---
+# --- SUNTIKAN GAYA CSS UNTUK TAMPILAN PREMIUM ---
 st.markdown("""
     <style>
-    /* Rekabentuk Kad Profil */
     .profile-card {
         background-color: #ffffff;
         padding: 20px;
@@ -17,7 +17,6 @@ st.markdown("""
         border-left: 5px solid #4CAF50;
         margin-bottom: 25px;
     }
-    /* Rekabentuk Jadual Keputusan */
     .pbd-table {
         width: 100%;
         border-collapse: collapse;
@@ -40,10 +39,7 @@ st.markdown("""
         text-align: center;
         color: #343a40;
     }
-    .pbd-table tr:hover {
-        background-color: #f8f9fa;
-    }
-    /* Lencana Warna Dinamik untuk TP */
+    .pbd-table tr:hover { background-color: #f8f9fa; }
     .badge {
         padding: 6px 14px;
         border-radius: 20px;
@@ -52,9 +48,9 @@ st.markdown("""
         display: inline-block;
         font-size: 14px;
     }
-    .badge-high { background-color: #2ece7e; box-shadow: 0 2px 5px rgba(46,206,126,0.3); } /* TP 5-6 */
-    .badge-mid { background-color: #1a73e8; box-shadow: 0 2px 5px rgba(26,115,232,0.3); }  /* TP 3-4 */
-    .badge-low { background-color: #ee5253; box-shadow: 0 2px 5px rgba(238,82,83,0.3); }  /* TP 1-2 */
+    .badge-high { background-color: #2ece7e; box-shadow: 0 2px 5px rgba(46,206,126,0.3); }
+    .badge-mid { background-color: #1a73e8; box-shadow: 0 2px 5px rgba(26,115,232,0.3); }
+    .badge-low { background-color: #ee5253; box-shadow: 0 2px 5px rgba(238,82,83,0.3); }
     </style>
 """, unsafe_allow_html=True)
 
@@ -74,29 +70,77 @@ with col_title:
 st.markdown("---")
 
 # =========================================================
-# 2. SEKSYEN MUAT NAIK FAIL & PENGESANAN SUBJEK AUTOMATIK
+# FUNGSI PEMBANTU: CARI LAJUR DENGAN KATA KUNCI
+# =========================================================
+def cari_lajur(df, senarai_kata_kunci):
+    for col in df.columns:
+        for kw in senarai_kata_kunci:
+            if kw.lower() in str(col).lower().replace('\n', ' '):
+                return col
+    return None
+
+def read_pdf_to_dataframe(pdf_file):
+    all_data = []
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            for table in tables:
+                for row in table:
+                    if any(row):
+                        all_data.append([cell.replace('\n', ' ').strip() if cell else "" for cell in row])
+                        
+    if not all_data:
+        return None
+        
+    header = all_data[0]
+    df_pdf = pd.DataFrame(all_data[1:], columns=header)
+    return df_pdf
+
+# =========================================================
+# 2. SEKSYEN MUAT NAIK FAIL & PENGESANAN AUTOMATIK
 # =========================================================
 st.sidebar.header("📁 Pengurusan Data")
+
 uploaded_file = st.sidebar.file_uploader(
-    "Muat naik fail CSV (dari idMe):", 
-    type=["csv"]
+    "Muat naik fail PDF / CSV (dari idMe):", 
+    type=["pdf", "csv"]
 )
 
 df = None
 senarai_subjek = []
+lajur_ic = None
+lajur_nama = None
+lajur_tingkatan = None
 
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file, dtype={'IC': str}) 
-        df.columns = df.columns.str.strip() 
-        
-        # Penapis lajur asas bukan subjek
-        lajur_bukan_subjek = ['Bil', 'Nama', 'IC', 'Tingkatan'] 
-        senarai_subjek = [kolom for kolom in df.columns if kolom not in lajur_bukan_subjek]
-        
-        st.sidebar.success(f"✅ Fail berjaya dibaca! {len(senarai_subjek)} subjek dikesan.")
+        if uploaded_file.name.endswith('.pdf'):
+            df = read_pdf_to_dataframe(uploaded_file)
+        else:
+            df = pd.read_csv(uploaded_file, dtype=str)
+            
+        if df is not None and not df.empty:
+            # Bersihkan tajuk lajur daripada ruang kosong berlebihan
+            df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
+            
+            # Pengesan Lajur Pintar
+            lajur_ic = cari_lajur(df, ['ic', 'kp', 'kad pengenalan', 'mykod'])
+            lajur_nama = cari_lajur(df, ['nama', 'student', 'murid'])
+            lajur_tingkatan = cari_lajur(df, ['tingkatan', 'kelas', 'form'])
+            
+            # Senaraikan semua lajur asas untuk diabaikan sebagai subjek
+            lajur_asas = [lajur_ic, lajur_nama, lajur_tingkatan, 'Bil', 'BIL', 'No', 'NO', 'Jantina', 'Kaum']
+            senarai_subjek = [c for c in df.columns if c not in lajur_asas and c is not None]
+            
+            if lajur_ic is None:
+                st.sidebar.warning("⚠️ Lajur Kad Pengenalan tidak dikesan secara automatik.")
+            else:
+                st.sidebar.success(f"✅ Fail berjaya dibaca! Lajur KP: `{lajur_ic}` | Subjek: {len(senarai_subjek)}")
+        else:
+            st.sidebar.error("Gagal membaca kandungan fail.")
+            
     except Exception as e:
-        st.sidebar.error(f"Ralat membaca fail: {e}. Sila pastikan fail berformat CSV.")
+        st.sidebar.error(f"Ralat membaca fail: {e}")
 
 # =========================================================
 # 3. STRUKTUR TAB ANTARAMUKA
@@ -104,34 +148,39 @@ if uploaded_file is not None:
 tab1, tab2 = st.tabs(["🔍 Semakan Individu (Carian IC)", "📊 Analisis Pencapaian Tingkatan"])
 
 # ==========================================
-# TAB 1: CARIAN INDIVIDU (KINI DENGAN UI PREMIUM)
+# TAB 1: CARIAN INDIVIDU
 # ==========================================
 with tab1:
     st.markdown("<h2 style='color: #3c4043;'>Semakan Tahap Penguasaan (TP) Murid</h2>", unsafe_allow_html=True)
     
     if df is None:
-        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk memulakan carian.")
+        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu.")
+    elif lajur_ic is None:
+        st.error("Ralat: Lajur Kad Pengenalan tidak dijumpai di dalam fail anda.")
     else:
         search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
         
         if search_ic:
-            murid = df[df['IC'] == search_ic]
+            # Bersihkan carian IC daripada tanda sengkang dan ruang kosong
+            clean_search = search_ic.replace('-', '').strip()
+            
+            # Padankan IC tanpa sengkang
+            murid = df[df[lajur_ic].astype(str).str.replace('-', '').str.strip() == clean_search]
             
             if not murid.empty:
-                # 1. Ekstrak Data Murid
-                nama_murid = murid['Nama'].values[0]
-                tingkatan_murid = murid['Tingkatan'].values[0]
+                nama_murid = murid[lajur_nama].values[0] if lajur_nama else "Murid"
+                tingkatan_murid = murid[lajur_tingkatan].values[0] if lajur_tingkatan else "-"
                 
                 tp_data = murid[senarai_subjek].T.reset_index()
                 tp_data.columns = ['Subjek', 'TP']
                 tp_data = tp_data.dropna()
                 tp_data = tp_data[tp_data['TP'].astype(str).str.strip().str.lower() != 'none']
-                tp_data['TP'] = pd.to_numeric(tp_data['TP'])
+                tp_data['TP'] = pd.to_numeric(tp_data['TP'], errors='coerce')
+                tp_data = tp_data.dropna(subset=['TP'])
                 
-                purata_tp = tp_data['TP'].mean()
+                purata_tp = tp_data['TP'].mean() if not tp_data.empty else 0
                 total_subjek = len(tp_data)
                 
-                # 2. PAPARAN KAD PROFIL & RINGKASAN EKSEKUTIF
                 st.markdown(f"""
                     <div class="profile-card">
                         <span style="color: #70757a; font-size: 14px; font-weight: bold; text-transform: uppercase;">Profil Murid</span>
@@ -140,7 +189,6 @@ with tab1:
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # Paparan KPI Ringkas (Metrics)
                 m_col1, m_col2, m_col3 = st.columns(3)
                 with m_col1:
                     st.metric("Jumlah Subjek Diambil", f"{total_subjek} Subjek")
@@ -152,55 +200,32 @@ with tab1:
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # 3. SUSUN ATUR 2 LAJUR: JADUAL (KIRI) & CARTA (KANAN)
                 col_kiri, col_kanan = st.columns([11, 10])
                 
                 with col_kiri:
                     st.markdown("<h4 style='text-align: center; color: #3c4043; margin-bottom: 15px;'>Jadual Pencapaian Subjek</h4>", unsafe_allow_html=True)
                     
-                    # Membina Jadual HTML Cantik Bersama Lencana Warna Dinamik
                     html_table = "<table class='pbd-table'>"
-                    html_table += "<thead><tr><th>Subjek</th><th>Tahap Penguasaan (TP)</th></tr></thead>"
-                    html_table += "<tbody>"
+                    html_table += "<thead><tr><th>Subjek</th><th>Tahap Penguasaan (TP)</th></tr></thead><tbody>"
                     
                     for _, row in tp_data.iterrows():
                         tp_val = int(row['TP'])
-                        # Tentukan kelas warna lencana mengikut nilai TP
-                        if tp_val >= 5:
-                            badge_class = "badge-high"
-                        elif tp_val >= 3:
-                            badge_class = "badge-mid"
-                        else:
-                            badge_class = "badge-low"
-                            
-                        html_table += "<tr>"
-                        html_table += f"<td><b>{row['Subjek']}</b></td>"
-                        html_table += f"<td><span class='badge {badge_class}'>TP {tp_val}</span></td>"
-                        html_table += "</tr>"
+                        badge_class = "badge-high" if tp_val >= 5 else ("badge-mid" if tp_val >= 3 else "badge-low")
+                        html_table += f"<tr><td><b>{row['Subjek']}</b></td><td><span class='badge {badge_class}'>TP {tp_val}</span></td></tr>"
                         
                     html_table += "</tbody></table>"
                     st.markdown(html_table, unsafe_allow_html=True)
                 
                 with col_kanan:
-                    # Menjana Carta Radar Moden dengan Plotly
                     fig_radar = px.line_polar(tp_data, r='TP', theta='Subjek', line_close=True, range_r=[0,6])
                     fig_radar.update_traces(fill='toself', fillcolor='rgba(26, 115, 232, 0.2)', line_color='#1a73e8', line_width=2)
                     fig_radar.update_layout(
-                        title={
-                            'text': "Profil Kognitif & Penguasaan",
-                            'y': 0.95, 'x': 0.5, 'xanchor': 'center', 'yanchor': 'top'
-                        },
+                        title={'text': "Profil Kognitif & Penguasaan", 'y': 0.95, 'x': 0.5, 'xanchor': 'center'},
                         font=dict(size=13, color="#3c4043"),
-                        polar=dict(
-                            radialaxis=dict(visible=True, range=[0, 6], gridcolor="#dee2e6"),
-                            angularaxis=dict(gridcolor="#dee2e6")
-                        ),
-                        margin=dict(t=80, b=20, l=40, r=40),
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)'
+                        polar=dict(radialaxis=dict(visible=True, range=[0, 6])),
+                        margin=dict(t=80, b=20, l=40, r=40)
                     )
                     st.plotly_chart(fig_radar, use_container_width=True)
-                    
             else:
                 st.error("No. Kad Pengenalan tidak ditemui dalam fail. Sila semak semula.")
 
@@ -209,62 +234,34 @@ with tab1:
 # ==========================================
 with tab2:
     st.header("Analisis Mendalam Mengikut Tingkatan")
-    
     if df is None:
-        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu untuk melihat analisis penuh.")
+        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu.")
     else:
-        if 'Tingkatan' in df.columns:
-            senarai_tingkatan = df['Tingkatan'].dropna().unique()
+        if lajur_tingkatan in df.columns:
+            senarai_tingkatan = df[lajur_tingkatan].dropna().unique()
             pilihan_tingkatan = st.selectbox("Pilih Tingkatan:", senarai_tingkatan)
             
-            df_tingkatan = df[df['Tingkatan'] == pilihan_tingkatan]
-            
+            df_tingkatan = df[df[lajur_tingkatan] == pilihan_tingkatan]
             st.write(f"### Analisis Keseluruhan bagi {pilihan_tingkatan}")
             
-            df_melt = df_tingkatan.melt(id_vars=['IC', 'Nama', 'Tingkatan'], 
+            df_melt = df_tingkatan.melt(id_vars=[c for c in df.columns if c not in senarai_subjek], 
                                         value_vars=senarai_subjek,
                                         var_name='Subjek', value_name='TP')
             
-            df_melt = df_melt.dropna(subset=['TP'])
-            df_melt = df_melt[df_melt['TP'].astype(str).str.strip().str.lower() != 'none']
             df_melt['TP'] = pd.to_numeric(df_melt['TP'], errors='coerce')
             df_melt = df_melt.dropna(subset=['TP'])
             
             col3, col4 = st.columns(2)
-            
             with col3:
                 fig_bar = px.histogram(df_melt, x="Subjek", color="TP", barmode="group",
                                        title="Taburan Tahap Penguasaan (TP) Mengikut Subjek",
-                                       category_orders={"TP": [1, 2, 3, 4, 5, 6]},
-                                       color_discrete_sequence=px.colors.sequential.Viridis)
+                                       category_orders={"TP": [1, 2, 3, 4, 5, 6]})
                 st.plotly_chart(fig_bar, use_container_width=True)
                 
             with col4:
                 purata_subjek = df_melt.groupby('Subjek')['TP'].mean().reset_index()
-                fig_line = px.bar(purata_subjek, x='Subjek', y='TP',
-                                  title="Purata TP Keseluruhan Subjek", text_auto='.2f')
+                fig_line = px.bar(purata_subjek, x='Subjek', y='TP', title="Purata TP Keseluruhan Subjek", text_auto='.2f')
                 fig_line.update_layout(yaxis=dict(range=[0,6]))
                 st.plotly_chart(fig_line, use_container_width=True)
-    
-            st.write("### Senarai Pelajar & Keputusan")
-            
-            df_kemas = df_tingkatan.fillna("-").replace("None", "-")
-            df_kemas = df_kemas.astype(str).replace(r'\.0$', '', regex=True)
-            
-            jadual_html = df_kemas.style.set_properties(**{
-                'text-align': 'center', 
-                'border': '1px solid #e6e6eb',
-                'padding': '10px',
-                'font-family': 'sans-serif'
-            }).set_table_styles([{
-                'selector': 'th', 
-                'props': [('text-align', 'center'), ('background-color', '#f0f2f6'), ('padding', '10px'), ('border', '1px solid #e6e6eb')]
-            }, {
-                'selector': 'table',
-                'props': [('width', '100%'), ('border-collapse', 'collapse')]
-            }]).hide(axis="index").to_html()
-            
-            st.markdown(jadual_html, unsafe_allow_html=True)
-            
         else:
-            st.error("Ralat: Lajur 'Tingkatan' tidak dijumpai di dalam fail CSV anda.")
+            st.warning("Lajur 'Tingkatan' tidak dikesan dalam fail ini.")
