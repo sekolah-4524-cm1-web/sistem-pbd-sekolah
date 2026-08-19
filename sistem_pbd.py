@@ -187,20 +187,22 @@ else:
             tp_data['TP'] = tp_data['TP_Raw'].astype(str).str.extract(r'(\d+)')[0]
             tp_data = tp_data.dropna(subset=['TP'])
             tp_data['TP'] = tp_data['TP'].astype(int)
-            
             tp_data = tp_data[(tp_data['TP'] >= 1) & (tp_data['TP'] <= 6)]
+            
+            # Penukaran kategori teks untuk Plotly
+            tp_data['TP_Str'] = "TP " + tp_data['TP'].astype(str)
             
             total_subjek = len(tp_data)
             tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
             tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
             
             st.markdown(f"""
-                <div class="profile-card">
-                    <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
-                    <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
-                    <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid}</b> &nbsp;|&nbsp; No. KP: <b>{search_ic}</b></p>
-                </div>
-            """, unsafe_allow_html=True)
+<div class="profile-card">
+    <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
+    <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
+    <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid}</b> &nbsp;|&nbsp; No. KP: <b>{search_ic}</b></p>
+</div>
+""", unsafe_allow_html=True)
             
             m1, m2, m3, m4 = st.columns(4)
             with m1:
@@ -220,16 +222,22 @@ else:
             with col_graf:
                 st.subheader("📊 Pencapaian TP Mengikut Subjek")
                 
-                color_map = {6: '#0d904f', 5: '#34a853', 4: '#1a73e8', 3: '#fbbc04', 2: '#e67c73', 1: '#d93025'}
-                tp_data['Warna'] = tp_data['TP'].map(color_map)
+                color_map = {
+                    'TP 6': '#0d904f', 
+                    'TP 5': '#34a853', 
+                    'TP 4': '#1a73e8', 
+                    'TP 3': '#fbbc04', 
+                    'TP 2': '#e67c73', 
+                    'TP 1': '#d93025'
+                }
                 
                 fig_bar = px.bar(
                     tp_data,
                     x='TP',
                     y='Subjek',
                     orientation='h',
-                    text='TP',
-                    color='TP',
+                    text='TP_Str',
+                    color='TP_Str',
                     color_discrete_map=color_map,
                     title="Skor TP Bagi Setiap Subjek"
                 )
@@ -239,40 +247,22 @@ else:
                     showlegend=False,
                     height=450
                 )
-                fig_bar.update_traces(texttemplate='<b>TP %{text}</b>', textposition='outside')
+                fig_bar.update_traces(textposition='outside')
                 st.plotly_chart(fig_bar, use_container_width=True)
 
             with col_jadual:
                 st.subheader("📋 Senarai Pencapaian Setiap Subjek")
                 
-                html_table = """
-                <table class='pbd-table'>
-                    <thead>
-                        <tr>
-                            <th style='width: 40%;'>Subjek</th>
-                            <th style='width: 20%; text-align: center;'>Tahap Penguasaan</th>
-                            <th style='width: 40%;'>Tafsiran & Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                """
-                
+                # Pembinaan rentetan HTML bersih tanpa inden ruang berlebihan
+                rows_html = ""
                 for _, row in tp_data.iterrows():
                     subjek_name = row['Subjek']
                     tp_val = row['TP']
                     tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
-                    
-                    html_table += f"""
-                    <tr>
-                        <td><b>{subjek_name}</b></td>
-                        <td style='text-align: center;'>
-                            <span class='badge {badge_cls}'>TP {tp_val}</span>
-                        </td>
-                        <td style='font-size: 13px; color: #495057;'>{tafsiran_txt}</td>
-                    </tr>
-                    """
-                    
-                html_table += "</tbody></table>"
+                    rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #495057;'>{tafsiran_txt}</td></tr>"
+                
+                html_table = f"<table class='pbd-table'><thead><tr><th style='width: 30%;'>Subjek</th><th style='width: 25%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>"
+                
                 st.markdown(html_table, unsafe_allow_html=True)
                 
             st.markdown("---")
@@ -281,17 +271,16 @@ else:
             c_pie, c_analisis = st.columns([1, 1])
             
             with c_pie:
-                taburan_tp = tp_data['TP'].value_counts().reset_index()
-                taburan_tp.columns = ['TP', 'Bilangan']
-                taburan_tp['Label_TP'] = taburan_tp['TP'].apply(lambda x: f"TP {x}")
+                taburan_tp = tp_data['TP_Str'].value_counts().reset_index()
+                taburan_tp.columns = ['TP_Str', 'Bilangan']
                 
                 fig_pie = px.pie(
                     taburan_tp, 
                     values='Bilangan', 
-                    names='Label_TP',
+                    names='TP_Str',
                     hole=0.4,
                     title="Nisbah Taburan TP Keseluruhan Subjek",
-                    color='TP',
+                    color='TP_Str',
                     color_discrete_map=color_map
                 )
                 st.plotly_chart(fig_pie, use_container_width=True)
