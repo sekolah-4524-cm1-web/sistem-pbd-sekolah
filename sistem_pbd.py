@@ -70,7 +70,7 @@ with col_title:
 st.markdown("---")
 
 # =========================================================
-# FUNGSI PEMBANTU: DENGAN PENYERAGAMAN LAJUR AUTOMATIK
+# FUNGSI PEMBANTU: PENGESANAN JADUAL & LAJUR
 # =========================================================
 def cari_lajur(df, senarai_kata_kunci):
     for col in df.columns:
@@ -93,14 +93,18 @@ def read_pdf_to_dataframe(pdf_file):
     if not all_rows:
         return None
         
-    # Cari bilangan lajur maksimum di antara semua baris untuk elakkan KeyError/ValueError
     max_cols = max(len(r) for r in all_rows)
-    
-    # Penyeragaman: Tambah petak kosong ("") untuk baris yang mempunyai kurang lajur
     normalized_rows = [r + [""] * (max_cols - len(r)) for r in all_rows]
     
-    # Membina tajuk lajur yang unik
-    raw_header = normalized_rows[0]
+    # CARI BARIS TAJUK SEBENAR (Cari baris yang mengandungi perkataan 'nama', 'kp', 'ic', dsb.)
+    header_idx = 0
+    for idx, row in enumerate(normalized_rows[:15]):
+        row_str = " ".join(row).lower()
+        if any(k in row_str for k in ['nama', 'kp', 'ic', 'kad pengenalan', 'mykad', 'mykid']):
+            header_idx = idx
+            break
+            
+    raw_header = normalized_rows[header_idx]
     header = []
     for i, col in enumerate(raw_header):
         col_name = col.strip() if col.strip() else f"Lajur_{i+1}"
@@ -108,11 +112,11 @@ def read_pdf_to_dataframe(pdf_file):
             col_name = f"{col_name}_{i+1}"
         header.append(col_name)
         
-    df_pdf = pd.DataFrame(normalized_rows[1:], columns=header)
+    df_pdf = pd.DataFrame(normalized_rows[header_idx+1:], columns=header)
     return df_pdf
 
 # =========================================================
-# 2. SEKSYEN MUAT NAIK FAIL & PENGESANAN AUTOMATIK
+# 2. SEKSYEN MUAT NAIK FAIL & PENGESANAN AUTOMATIK / MANUAL
 # =========================================================
 st.sidebar.header("📁 Pengurusan Data")
 
@@ -137,21 +141,34 @@ if uploaded_file is not None:
         if df is not None and not df.empty:
             df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
             
-            # Pengesan Lajur Pintar
-            lajur_ic = cari_lajur(df, ['ic', 'kp', 'kad pengenalan', 'mykod'])
+            # 1. Carian Automatik
+            lajur_ic = cari_lajur(df, ['ic', 'kp', 'kad pengenalan', 'mykod', 'mykad', 'mykid'])
             lajur_nama = cari_lajur(df, ['nama', 'student', 'murid'])
             lajur_tingkatan = cari_lajur(df, ['tingkatan', 'kelas', 'form'])
             
-            # Senaraikan semua lajur asas untuk diabaikan sebagai subjek
+            st.sidebar.markdown("---")
+            st.sidebar.subheader("⚙️ Tetapan Lajur Data")
+            
+            # 2. Kawalan Manual (Fallback) jika tidak dikesan automatik
+            if lajur_ic is None:
+                st.sidebar.warning("⚠️ Lajur IC tidak dikesan automatik. Sila pilih lajur IC:")
+                lajur_ic = st.sidebar.selectbox("Pilih Lajur No. Kad Pengenalan / IC:", options=df.columns)
+            else:
+                st.sidebar.success(f"✅ Lajur KP: `{lajur_ic}`")
+
+            if lajur_nama is None:
+                lajur_nama = st.sidebar.selectbox("Pilih Lajur Nama Murid:", options=df.columns)
+                
+            if lajur_tingkatan is None:
+                pilihan_tingkatan_opt = ["Tiada dalam fail"] + list(df.columns)
+                pilihan_t = st.sidebar.selectbox("Pilih Lajur Tingkatan (jika ada):", options=pilihan_tingkatan_opt)
+                lajur_tingkatan = None if pilihan_t == "Tiada dalam fail" else pilihan_t
+
+            # Tentukan lajur subjek
             lajur_asas = [lajur_ic, lajur_nama, lajur_tingkatan, 'Bil', 'BIL', 'No', 'NO', 'Jantina', 'Kaum']
             senarai_subjek = [c for c in df.columns if c not in lajur_asas and c is not None and not str(c).startswith('Lajur_')]
             
-            if lajur_ic is None:
-                st.sidebar.warning("⚠️ Lajur Kad Pengenalan tidak dikesan secara automatik.")
-            else:
-                st.sidebar.success(f"✅ Fail berjaya dibaca! Lajur KP: `{lajur_ic}` | Subjek: {len(senarai_subjek)}")
-        else:
-            st.sidebar.error("Gagal membaca kandungan fail.")
+            st.sidebar.info(f"📊 {len(senarai_subjek)} subjek dikesan.")
             
     except Exception as e:
         st.sidebar.error(f"Ralat membaca fail: {e}")
@@ -170,7 +187,7 @@ with tab1:
     if df is None:
         st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu.")
     elif lajur_ic is None:
-        st.error("Ralat: Lajur Kad Pengenalan tidak dijumpai di dalam fail anda.")
+        st.error("Sila pilih lajur No. Kad Pengenalan pada bahagian sidebar di sebelah kiri.")
     else:
         search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
         
@@ -179,8 +196,8 @@ with tab1:
             murid = df[df[lajur_ic].astype(str).str.replace('-', '').str.strip() == clean_search]
             
             if not murid.empty:
-                nama_murid = murid[lajur_nama].values[0] if lajur_nama else "Murid"
-                tingkatan_murid = murid[lajur_tingkatan].values[0] if lajur_tingkatan else "-"
+                nama_murid = murid[lajur_nama].values[0] if lajur_nama and lajur_nama in murid.columns else "Murid"
+                tingkatan_murid = murid[lajur_tingkatan].values[0] if lajur_tingkatan and lajur_tingkatan in murid.columns else "-"
                 
                 tp_data = murid[senarai_subjek].T.reset_index()
                 tp_data.columns = ['Subjek', 'TP']
@@ -248,7 +265,7 @@ with tab2:
     if df is None:
         st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu.")
     else:
-        if lajur_tingkatan in df.columns:
+        if lajur_tingkatan and lajur_tingkatan in df.columns:
             senarai_tingkatan = df[lajur_tingkatan].dropna().unique()
             pilihan_tingkatan = st.selectbox("Pilih Tingkatan:", senarai_tingkatan)
             
@@ -275,4 +292,4 @@ with tab2:
                 fig_line.update_layout(yaxis=dict(range=[0,6]))
                 st.plotly_chart(fig_line, use_container_width=True)
         else:
-            st.warning("Lajur 'Tingkatan' tidak dikesan dalam fail ini.")
+            st.warning("Lajur 'Tingkatan' tidak dikesan dalam fail ini. Anda masih boleh menggunakan Tab Semakan Individu di atas.")
