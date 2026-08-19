@@ -1,42 +1,52 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import pdfplumber
+import re
 
 # 1. Konfigurasi Halaman
-st.set_page_config(page_title="Sistem PBD SMKDSO", layout="wide")
+st.set_page_config(page_title="Sistem Analisis PBD Individu", layout="wide")
 
-# --- SUNTIKAN GAYA CSS UNTUK TAMPILAN PREMIUM ---
+# --- SUNTIKAN GAYA CSS PREMIUM ---
 st.markdown("""
     <style>
     .profile-card {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-        border-left: 5px solid #4CAF50;
+        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+        padding: 22px;
+        border-radius: 14px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        border-left: 6px solid #1a73e8;
         margin-bottom: 25px;
+    }
+    .subject-card {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        border: 1px solid #e9ecef;
+        margin-bottom: 10px;
     }
     .pbd-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         background-color: white;
         border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     .pbd-table th {
-        background-color: #f8f9fa;
-        color: #495057;
+        background-color: #f1f3f4;
+        color: #3c4043;
         padding: 14px;
-        font-weight: 600;
-        border-bottom: 2px solid #dee2e6;
-        text-align: center;
+        font-weight: 700;
+        text-align: left;
+        border-bottom: 2px solid #dadce0;
     }
     .pbd-table td {
-        padding: 12px;
+        padding: 12px 14px;
         border-bottom: 1px solid #f1f3f5;
-        text-align: center;
         color: #343a40;
     }
     .pbd-table tr:hover { background-color: #f8f9fa; }
@@ -46,38 +56,41 @@ st.markdown("""
         font-weight: bold;
         color: white;
         display: inline-block;
-        font-size: 14px;
+        font-size: 13px;
+        text-align: center;
+        min-width: 60px;
     }
-    .badge-high { background-color: #2ece7e; box-shadow: 0 2px 5px rgba(46,206,126,0.3); }
-    .badge-mid { background-color: #1a73e8; box-shadow: 0 2px 5px rgba(26,115,232,0.3); }
-    .badge-low { background-color: #ee5253; box-shadow: 0 2px 5px rgba(238,82,83,0.3); }
+    .badge-tp6 { background-color: #0d904f; }
+    .badge-tp5 { background-color: #34a853; }
+    .badge-tp4 { background-color: #1a73e8; }
+    .badge-tp3 { background-color: #fbbc04; color: #333; }
+    .badge-tp2 { background-color: #e67c73; }
+    .badge-tp1 { background-color: #d93025; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- LETAK LOGO DAN TAJUK ---
-col_logo, col_title = st.columns([1, 10])
-
-with col_logo:
-    try:
-        st.image("Logo SMKDSO.jpg", width=95)
-    except:
-        st.error("Logo tidak dijumpai")
-
-with col_title:
-    st.markdown("<h1 style='color: #1a73e8; margin-bottom: 0;'>Sistem Analisis Pentaksiran Bilik Darjah (PBD)</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='color: #70757a; font-size: 16px; margin-top: 5px;'>Sistem Pelaporan Prestasi Akademik Murid Sekolah Menengah Kebangsaan Dato' Syed Omar</p>", unsafe_allow_html=True)
-    
+# --- TAJUK UTAMA ---
+st.markdown("<h1 style='color: #1a73e8;'>Sistem Pelaporan Pencapaian Individu PBD</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
 # =========================================================
-# FUNGSI PEMBANTU: PENGESANAN JADUAL & LAJUR
+# FUNGSI PEMBANTU & PENAPISAN LAJUR
 # =========================================================
-def cari_lajur(df, senarai_kata_kunci):
-    for col in df.columns:
-        for kw in senarai_kata_kunci:
-            if kw.lower() in str(col).lower().replace('\n', ' '):
-                return col
-    return None
+KATA_KUNCI_BUKAN_SUBJEK = [
+    'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp',
+    'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
+]
+
+def dapatkan_tafsiran_tp(tp_val):
+    tafsiran = {
+        6: ("Cemerlang / Tahu, Paham & Boleh Meneladani", "badge-tp6"),
+        5: ("Sangat Baik / Tahu, Faham & Boleh Buat dengan Adab Terpuji", "badge-tp5"),
+        4: ("Baik / Tahu, Faham & Boleh Buat Beradab", "badge-tp4"),
+        3: ("Memuaskan / Tahu, Faham & Boleh Buat", "badge-tp3"),
+        2: ("Tahap Minimum / Tahu & Faham", "badge-tp2"),
+        1: ("Perlu Bimbingan / Tahu Sahaja", "badge-tp1")
+    }
+    return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
 
 def read_pdf_to_dataframe(pdf_file):
     all_rows = []
@@ -96,11 +109,11 @@ def read_pdf_to_dataframe(pdf_file):
     max_cols = max(len(r) for r in all_rows)
     normalized_rows = [r + [""] * (max_cols - len(r)) for r in all_rows]
     
-    # CARI BARIS TAJUK SEBENAR (Cari baris yang mengandungi perkataan 'nama', 'kp', 'ic', dsb.)
+    # Cari baris tajuk sebenar
     header_idx = 0
     for idx, row in enumerate(normalized_rows[:15]):
         row_str = " ".join(row).lower()
-        if any(k in row_str for k in ['nama', 'kp', 'ic', 'kad pengenalan', 'mykad', 'mykid']):
+        if any(k in row_str for k in ['nama', 'kp', 'ic', 'kad pengenalan', 'mykad']):
             header_idx = idx
             break
             
@@ -116,20 +129,14 @@ def read_pdf_to_dataframe(pdf_file):
     return df_pdf
 
 # =========================================================
-# 2. SEKSYEN MUAT NAIK FAIL & PENGESANAN AUTOMATIK / MANUAL
+# MUAT NAIK FAIL & PROSES DATA
 # =========================================================
-st.sidebar.header("📁 Pengurusan Data")
-
-uploaded_file = st.sidebar.file_uploader(
-    "Muat naik fail PDF / CSV (dari idMe):", 
-    type=["pdf", "csv"]
-)
+st.sidebar.header("📁 Pengurusan Data PBD")
+uploaded_file = st.sidebar.file_uploader("Muat naik fail PDF / CSV (idMe):", type=["pdf", "csv"])
 
 df = None
 senarai_subjek = []
-lajur_ic = None
-lajur_nama = None
-lajur_tingkatan = None
+lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
 
 if uploaded_file is not None:
     try:
@@ -141,155 +148,191 @@ if uploaded_file is not None:
         if df is not None and not df.empty:
             df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
             
-            # 1. Carian Automatik
-            lajur_ic = cari_lajur(df, ['ic', 'kp', 'kad pengenalan', 'mykod', 'mykad', 'mykid'])
-            lajur_nama = cari_lajur(df, ['nama', 'student', 'murid'])
-            lajur_tingkatan = cari_lajur(df, ['tingkatan', 'kelas', 'form'])
-            
+            # Pengesanan lajur
+            for c in df.columns:
+                c_lower = c.lower()
+                if any(k == c_lower or k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad']):
+                    if not lajur_ic: lajur_ic = c
+                elif any(k == c_lower or k in c_lower for k in ['nama', 'student', 'murid']):
+                    if not lajur_nama: lajur_nama = c
+                elif any(k == c_lower or k in c_lower for k in ['tingkatan', 'kelas', 'form']):
+                    if not lajur_tingkatan: lajur_tingkatan = c
+
             st.sidebar.markdown("---")
-            st.sidebar.subheader("⚙️ Tetapan Lajur Data")
+            st.sidebar.subheader("⚙️ Tetapan Lajur System")
             
-            # 2. Kawalan Manual (Fallback) jika tidak dikesan automatik
-            if lajur_ic is None:
-                st.sidebar.warning("⚠️ Lajur IC tidak dikesan automatik. Sila pilih lajur IC:")
-                lajur_ic = st.sidebar.selectbox("Pilih Lajur No. Kad Pengenalan / IC:", options=df.columns)
-            else:
-                st.sidebar.success(f"✅ Lajur KP: `{lajur_ic}`")
+            if not lajur_ic:
+                lajur_ic = st.sidebar.selectbox("Pilih Lajur Kad Pengenalan:", df.columns)
+            if not lajur_nama:
+                lajur_nama = st.sidebar.selectbox("Pilih Lajur Nama Murid:", df.columns)
 
-            if lajur_nama is None:
-                lajur_nama = st.sidebar.selectbox("Pilih Lajur Nama Murid:", options=df.columns)
-                
-            if lajur_tingkatan is None:
-                pilihan_tingkatan_opt = ["Tiada dalam fail"] + list(df.columns)
-                pilihan_t = st.sidebar.selectbox("Pilih Lajur Tingkatan (jika ada):", options=pilihan_tingkatan_opt)
-                lajur_tingkatan = None if pilihan_t == "Tiada dalam fail" else pilihan_t
+            # Tapis lajur subjek secara tegar (Abaikan Bil, IC, Nama, Tingkatan, dll)
+            for col in df.columns:
+                col_clean = col.lower().strip()
+                is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
+                if not is_metadata and col not in [lajur_ic, lajur_nama, lajur_tingkatan]:
+                    senarai_subjek.append(col)
 
-            # Tentukan lajur subjek
-            lajur_asas = [lajur_ic, lajur_nama, lajur_tingkatan, 'Bil', 'BIL', 'No', 'NO', 'Jantina', 'Kaum']
-            senarai_subjek = [c for c in df.columns if c not in lajur_asas and c is not None and not str(c).startswith('Lajur_')]
-            
-            st.sidebar.info(f"📊 {len(senarai_subjek)} subjek dikesan.")
+            st.sidebar.success(f"✅ {len(senarai_subjek)} Subjek Dikesan")
             
     except Exception as e:
         st.sidebar.error(f"Ralat membaca fail: {e}")
 
 # =========================================================
-# 3. STRUKTUR TAB ANTARAMUKA
+# PAPARAN INDIVIDU & ANALISIS SUBJEK
 # =========================================================
-tab1, tab2 = st.tabs(["🔍 Semakan Individu (Carian IC)", "📊 Analisis Pencapaian Tingkatan"])
-
-# ==========================================
-# TAB 1: CARIAN INDIVIDU
-# ==========================================
-with tab1:
-    st.markdown("<h2 style='color: #3c4043;'>Semakan Tahap Penguasaan (TP) Murid</h2>", unsafe_allow_html=True)
+if df is None:
+        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) di bahagian **Sidebar** untuk memulakan.")
+else:
+    search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-'):", "")
     
-    if df is None:
-        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu.")
-    elif lajur_ic is None:
-        st.error("Sila pilih lajur No. Kad Pengenalan pada bahagian sidebar di sebelah kiri.")
-    else:
-        search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
+    if search_ic:
+        clean_search = search_ic.replace('-', '').strip()
+        murid = df[df[lajur_ic].astype(str).str.replace('-', '').str.strip() == clean_search]
         
-        if search_ic:
-            clean_search = search_ic.replace('-', '').strip()
-            murid = df[df[lajur_ic].astype(str).str.replace('-', '').str.strip() == clean_search]
+        if not murid.empty:
+            nama_murid = murid[lajur_nama].values[0] if lajur_nama in murid.columns else "Murid"
+            tingkatan_murid = murid[lajur_tingkatan].values[0] if lajur_tingkatan and lajur_tingkatan in murid.columns else "-"
             
-            if not murid.empty:
-                nama_murid = murid[lajur_nama].values[0] if lajur_nama and lajur_nama in murid.columns else "Murid"
-                tingkatan_murid = murid[lajur_tingkatan].values[0] if lajur_tingkatan and lajur_tingkatan in murid.columns else "-"
-                
-                tp_data = murid[senarai_subjek].T.reset_index()
-                tp_data.columns = ['Subjek', 'TP']
-                tp_data = tp_data.dropna()
-                tp_data = tp_data[tp_data['TP'].astype(str).str.strip().str.lower() != 'none']
-                tp_data['TP'] = pd.to_numeric(tp_data['TP'], errors='coerce')
-                tp_data = tp_data.dropna(subset=['TP'])
-                
-                purata_tp = tp_data['TP'].mean() if not tp_data.empty else 0
-                total_subjek = len(tp_data)
-                
-                st.markdown(f"""
-                    <div class="profile-card">
-                        <span style="color: #70757a; font-size: 14px; font-weight: bold; text-transform: uppercase;">Profil Murid</span>
-                        <h2 style="margin: 5px 0 0 0; color: #1a73e8;">{nama_murid}</h2>
-                        <p style="margin: 5px 0 0 0; font-size: 15px; color: #3c4043;">Tingkatan: <b>{tingkatan_murid}</b> | No. KP: <b>{search_ic}</b></p>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                m_col1, m_col2, m_col3 = st.columns(3)
-                with m_col1:
-                    st.metric("Jumlah Subjek Diambil", f"{total_subjek} Subjek")
-                with m_col2:
-                    st.metric("Purata Tahap Penguasaan (TP)", f"{purata_tp:.2f} / 6.00")
-                with m_col3:
-                    tp_tertinggi = int(tp_data['TP'].max()) if not tp_data.empty else 0
-                    st.metric("TP Tertinggi Dicapai", f"TP {tp_tertinggi}")
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                col_kiri, col_kanan = st.columns([11, 10])
-                
-                with col_kiri:
-                    st.markdown("<h4 style='text-align: center; color: #3c4043; margin-bottom: 15px;'>Jadual Pencapaian Subjek</h4>", unsafe_allow_html=True)
-                    
-                    html_table = "<table class='pbd-table'>"
-                    html_table += "<thead><tr><th>Subjek</th><th>Tahap Penguasaan (TP)</th></tr></thead><tbody>"
-                    
-                    for _, row in tp_data.iterrows():
-                        tp_val = int(row['TP'])
-                        badge_class = "badge-high" if tp_val >= 5 else ("badge-mid" if tp_val >= 3 else "badge-low")
-                        html_table += f"<tr><td><b>{row['Subjek']}</b></td><td><span class='badge {badge_class}'>TP {tp_val}</span></td></tr>"
-                        
-                    html_table += "</tbody></table>"
-                    st.markdown(html_table, unsafe_allow_html=True)
-                
-                with col_kanan:
-                    fig_radar = px.line_polar(tp_data, r='TP', theta='Subjek', line_close=True, range_r=[0,6])
-                    fig_radar.update_traces(fill='toself', fillcolor='rgba(26, 115, 232, 0.2)', line_color='#1a73e8', line_width=2)
-                    fig_radar.update_layout(
-                        title={'text': "Profil Kognitif & Penguasaan", 'y': 0.95, 'x': 0.5, 'xanchor': 'center'},
-                        font=dict(size=13, color="#3c4043"),
-                        polar=dict(radialaxis=dict(visible=True, range=[0, 6])),
-                        margin=dict(t=80, b=20, l=40, r=40)
-                    )
-                    st.plotly_chart(fig_radar, use_container_width=True)
-            else:
-                st.error("No. Kad Pengenalan tidak ditemui dalam fail. Sila semak semula.")
-
-# ==========================================
-# TAB 2: ANALISIS TINGKATAN
-# ==========================================
-with tab2:
-    st.header("Analisis Mendalam Mengikut Tingkatan")
-    if df is None:
-        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) pada bahagian **Sidebar di sebelah kiri** terlebih dahulu.")
-    else:
-        if lajur_tingkatan and lajur_tingkatan in df.columns:
-            senarai_tingkatan = df[lajur_tingkatan].dropna().unique()
-            pilihan_tingkatan = st.selectbox("Pilih Tingkatan:", senarai_tingkatan)
+            # Susun data subjek secara mendatar ke menegak
+            tp_data = murid[senarai_subjek].T.reset_index()
+            tp_data.columns = ['Subjek', 'TP_Raw']
             
-            df_tingkatan = df[df[lajur_tingkatan] == pilihan_tingkatan]
-            st.write(f"### Analisis Keseluruhan bagi {pilihan_tingkatan}")
+            # Ekstrak digit sahaja daripada TP (Cth: "TP 4" -> 4)
+            tp_data['TP'] = tp_data['TP_Raw'].astype(str).str.extract(r'(\d+)')[0]
+            tp_data = tp_data.dropna(subset=['TP'])
+            tp_data['TP'] = tp_data['TP'].astype(int)
             
-            df_melt = df_tingkatan.melt(id_vars=[c for c in df.columns if c not in senarai_subjek], 
-                                        value_vars=senarai_subjek,
-                                        var_name='Subjek', value_name='TP')
+            # Tapis TP julat sah (1 hingga 6)
+            tp_data = tp_data[(tp_data['TP'] >= 1) & (tp_data['TP'] <= 6)]
             
-            df_melt['TP'] = pd.to_numeric(df_melt['TP'], errors='coerce')
-            df_melt = df_melt.dropna(subset=['TP'])
+            total_subjek = len(tp_data)
+            tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
+            tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
             
-            col3, col4 = st.columns(2)
-            with col3:
-                fig_bar = px.histogram(df_melt, x="Subjek", color="TP", barmode="group",
-                                       title="Taburan Tahap Penguasaan (TP) Mengikut Subjek",
-                                       category_orders={"TP": [1, 2, 3, 4, 5, 6]})
+            # --- CARD PROFIL MURID ---
+            st.markdown(f"""
+                <div class="profile-card">
+                    <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
+                    <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
+                    <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid}</b> &nbsp;|&nbsp; No. KP: <b>{search_ic}</b></p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # --- METRIK UTAMA (BUKAN PURATA) ---
+            m1, m2, m3, m4 = st.columns(4)
+            with m1:
+                st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
+            with m2:
+                st.metric("Subjek Penguasaan Tinggi (TP 5-6)", f"{tp_cemerlang} Subjek")
+            with m3:
+                st.metric("Subjek Bimbingan (TP 1-2)", f"{tp_perlu_perhatian} Subjek")
+            with m4:
+                tp_max = tp_data['TP'].max() if not tp_data.empty else 0
+                st.metric("Pencapaian TP Tertinggi", f"TP {tp_max}")
+                
+            st.markdown("---")
+            
+            col_graf, col_jadual = st.columns([10, 12])
+            
+            # --- CARTA BANARAN TP MENGIKUT SUBJEK ---
+            with col_graf:
+                st.subheader("📊 Pencapaian TP Mengikut Subjek")
+                
+                # Susun warna mengikut nilai TP
+                color_map = {6: '#0d904f', 5: '#34a853', 4: '#1a73e8', 3: '#fbbc04', 2: '#e67c73', 1: '#d93025'}
+                tp_data['Warna'] = tp_data['TP'].map(color_map)
+                
+                fig_bar = px.bar(
+                    tp_data,
+                    x='TP',
+                    y='Subjek',
+                    orientation='h',
+                    text='TP',
+                    color='TP',
+                    color_discrete_map=color_map,
+                    title="Skor TP Bagi Setiap Subjek"
+                )
+                fig_bar.update_layout(
+                    xaxis=dict(range=[0, 6.5], dtick=1, title="Tahap Penguasaan (TP)"),
+                    yaxis=dict(title="", autonumbering=False, categoryorder='total ascending'),
+                    showlegend=False,
+                    height=450
+                )
+                fig_bar.update_traces(texttemplate='<b>TP %{text}</b>', textposition='outside')
                 st.plotly_chart(fig_bar, use_container_width=True)
+
+            # --- JADUAL PERINCIAN INDIVIDU DENGAN TAFSIRAN ---
+            with col_jadual:
+                st.subheader("📋 Senarai Pencapaian Setiap Subjek")
                 
-            with col4:
-                purata_subjek = df_melt.groupby('Subjek')['TP'].mean().reset_index()
-                fig_line = px.bar(purata_subjek, x='Subjek', y='TP', title="Purata TP Keseluruhan Subjek", text_auto='.2f')
-                fig_line.update_layout(yaxis=dict(range=[0,6]))
-                st.plotly_chart(fig_line, use_container_width=True)
+                html_table = """
+                <table class='pbd-table'>
+                    <thead>
+                        <tr>
+                            <th style='width: 40%;'>Subjek</th>
+                            <th style='width: 20%; text-align: center;'>Tahap Penguasaan</th>
+                            <th style='width: 40%;'>Tafsiran & Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                """
+                
+                for _, row in tp_data.iterrows():
+                    subjek_name = row['Subjek']
+                    tp_val = row['TP']
+                    tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
+                    
+                    html_table += f"""
+                    <tr>
+                        <td><b>{subjek_name}</b></td>
+                        <td style='text-align: center;'>
+                            <span class='badge {badge_cls}'>TP {tp_val}</span>
+                        </td>
+                        <td style='font-size: 13px; color: #495057;'>{tafsiran_txt}</td>
+                    </tr>
+                    """
+                    
+                html_table += "</tbody></table>"
+                st.markdown(html_table, unsafe_allow_html=True)
+                
+            # --- TABURAN KATEGORI SKOR ---
+            st.markdown("---")
+            st.subheader("📈 Analisis Taburan Penguasaan Murid")
+            
+            c_pie, c_analisis = st.columns([1, 1])
+            
+            with c_pie:
+                taburan_tp = tp_data['TP'].value_counts().reset_index()
+                taburan_tp.columns = ['TP', 'Bilangan']
+                taburan_tp['Label_TP'] = taburan_tp['TP'].apply(lambda x: f"TP {x}")
+                
+                fig_pie = px.pie(
+                    taburan_tp, 
+                    values='Bilangan', 
+                    names='Label_TP',
+                    hole=0.4,
+                    title="Nisbah Taburan TP Keseluruhan Subjek",
+                    color='TP',
+                    color_discrete_map=color_map
+                )
+                st.plotly_chart(fig_pie, use_container_width=True)
+                
+            with c_analisis:
+                st.markdown("#### Ringkasan Analisis Pentaksiran")
+                
+                subjek_tinggi = tp_data[tp_data['TP'] >= 5]['Subjek'].tolist()
+                subjek_rendah = tp_data[tp_data['TP'] <= 2]['Subjek'].tolist()
+                
+                if subjek_tinggi:
+                    st.success(f"🌟 **Kekuatan:** Murid menonjol dalam **{len(subjek_tinggi)}** subjek ({', '.join(subjek_tinggi)}).")
+                else:
+                    st.info("ℹ️ Tiada subjek mencapai TP 5 atau TP 6 buat masa ini.")
+                    
+                if subjek_rendah:
+                    st.error(f"⚠️ **Saranan Intervensi:** Bimbingan khusus diperlukan bagi **{len(subjek_rendah)}** subjek ({', '.join(subjek_rendah)}).")
+                else:
+                    st.success("✅ **Prestasi Baik:** Semua subjek telah melepasi Tahap Penguasaan Minimum (TP 3 dan ke atas).")
+
         else:
-            st.warning("Lajur 'Tingkatan' tidak dikesan dalam fail ini. Anda masih boleh menggunakan Tab Semakan Individu di atas.")
+            st.error("No. Kad Pengenalan tidak dijumpai dalam rekod. Sila pastikan carian adalah betul.")
