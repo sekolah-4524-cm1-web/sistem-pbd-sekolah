@@ -1,9 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import pdfplumber
-import re
 
 # 1. Konfigurasi Halaman
 st.set_page_config(page_title="Sistem Analisis PBD Individu", layout="wide")
@@ -18,14 +16,6 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
         border-left: 6px solid #1a73e8;
         margin-bottom: 25px;
-    }
-    .subject-card {
-        background-color: #ffffff;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        border: 1px solid #e9ecef;
-        margin-bottom: 10px;
     }
     .pbd-table {
         width: 100%;
@@ -83,7 +73,7 @@ KATA_KUNCI_BUKAN_SUBJEK = [
 
 def dapatkan_tafsiran_tp(tp_val):
     tafsiran = {
-        6: ("Cemerlang / Tahu, Paham & Boleh Meneladani", "badge-tp6"),
+        6: ("Cemerlang / Tahu, Faham & Boleh Meneladani", "badge-tp6"),
         5: ("Sangat Baik / Tahu, Faham & Boleh Buat dengan Adab Terpuji", "badge-tp5"),
         4: ("Baik / Tahu, Faham & Boleh Buat Beradab", "badge-tp4"),
         3: ("Memuaskan / Tahu, Faham & Boleh Buat", "badge-tp3"),
@@ -109,7 +99,6 @@ def read_pdf_to_dataframe(pdf_file):
     max_cols = max(len(r) for r in all_rows)
     normalized_rows = [r + [""] * (max_cols - len(r)) for r in all_rows]
     
-    # Cari baris tajuk sebenar
     header_idx = 0
     for idx, row in enumerate(normalized_rows[:15]):
         row_str = " ".join(row).lower()
@@ -148,7 +137,6 @@ if uploaded_file is not None:
         if df is not None and not df.empty:
             df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
             
-            # Pengesanan lajur
             for c in df.columns:
                 c_lower = c.lower()
                 if any(k == c_lower or k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad']):
@@ -159,14 +147,13 @@ if uploaded_file is not None:
                     if not lajur_tingkatan: lajur_tingkatan = c
 
             st.sidebar.markdown("---")
-            st.sidebar.subheader("⚙️ Tetapan Lajur System")
+            st.sidebar.subheader("⚙️ Tetapan Lajur Sistem")
             
             if not lajur_ic:
                 lajur_ic = st.sidebar.selectbox("Pilih Lajur Kad Pengenalan:", df.columns)
             if not lajur_nama:
                 lajur_nama = st.sidebar.selectbox("Pilih Lajur Nama Murid:", df.columns)
 
-            # Tapis lajur subjek secara tegar (Abaikan Bil, IC, Nama, Tingkatan, dll)
             for col in df.columns:
                 col_clean = col.lower().strip()
                 is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
@@ -182,7 +169,7 @@ if uploaded_file is not None:
 # PAPARAN INDIVIDU & ANALISIS SUBJEK
 # =========================================================
 if df is None:
-        st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) di bahagian **Sidebar** untuk memulakan.")
+    st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) di bahagian **Sidebar** untuk memulakan.")
 else:
     search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-'):", "")
     
@@ -194,23 +181,19 @@ else:
             nama_murid = murid[lajur_nama].values[0] if lajur_nama in murid.columns else "Murid"
             tingkatan_murid = murid[lajur_tingkatan].values[0] if lajur_tingkatan and lajur_tingkatan in murid.columns else "-"
             
-            # Susun data subjek secara mendatar ke menegak
             tp_data = murid[senarai_subjek].T.reset_index()
             tp_data.columns = ['Subjek', 'TP_Raw']
             
-            # Ekstrak digit sahaja daripada TP (Cth: "TP 4" -> 4)
             tp_data['TP'] = tp_data['TP_Raw'].astype(str).str.extract(r'(\d+)')[0]
             tp_data = tp_data.dropna(subset=['TP'])
             tp_data['TP'] = tp_data['TP'].astype(int)
             
-            # Tapis TP julat sah (1 hingga 6)
             tp_data = tp_data[(tp_data['TP'] >= 1) & (tp_data['TP'] <= 6)]
             
             total_subjek = len(tp_data)
             tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
             tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
             
-            # --- CARD PROFIL MURID ---
             st.markdown(f"""
                 <div class="profile-card">
                     <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
@@ -219,7 +202,6 @@ else:
                 </div>
             """, unsafe_allow_html=True)
             
-            # --- METRIK UTAMA (BUKAN PURATA) ---
             m1, m2, m3, m4 = st.columns(4)
             with m1:
                 st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
@@ -235,11 +217,9 @@ else:
             
             col_graf, col_jadual = st.columns([10, 12])
             
-            # --- CARTA BANARAN TP MENGIKUT SUBJEK ---
             with col_graf:
                 st.subheader("📊 Pencapaian TP Mengikut Subjek")
                 
-                # Susun warna mengikut nilai TP
                 color_map = {6: '#0d904f', 5: '#34a853', 4: '#1a73e8', 3: '#fbbc04', 2: '#e67c73', 1: '#d93025'}
                 tp_data['Warna'] = tp_data['TP'].map(color_map)
                 
@@ -255,14 +235,13 @@ else:
                 )
                 fig_bar.update_layout(
                     xaxis=dict(range=[0, 6.5], dtick=1, title="Tahap Penguasaan (TP)"),
-                    yaxis=dict(title="", autonumbering=False, categoryorder='total ascending'),
+                    yaxis=dict(title="", categoryorder='total ascending'),
                     showlegend=False,
                     height=450
                 )
                 fig_bar.update_traces(texttemplate='<b>TP %{text}</b>', textposition='outside')
                 st.plotly_chart(fig_bar, use_container_width=True)
 
-            # --- JADUAL PERINCIAN INDIVIDU DENGAN TAFSIRAN ---
             with col_jadual:
                 st.subheader("📋 Senarai Pencapaian Setiap Subjek")
                 
@@ -296,7 +275,6 @@ else:
                 html_table += "</tbody></table>"
                 st.markdown(html_table, unsafe_allow_html=True)
                 
-            # --- TABURAN KATEGORI SKOR ---
             st.markdown("---")
             st.subheader("📈 Analisis Taburan Penguasaan Murid")
             
