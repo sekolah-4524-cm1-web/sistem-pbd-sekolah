@@ -70,7 +70,7 @@ with col_title:
 st.markdown("---")
 
 # =========================================================
-# FUNGSI PEMBANTU: CARI LAJUR DENGAN KATA KUNCI
+# FUNGSI PEMBANTU: DENGAN PENYERAGAMAN LAJUR AUTOMATIK
 # =========================================================
 def cari_lajur(df, senarai_kata_kunci):
     for col in df.columns:
@@ -80,20 +80,35 @@ def cari_lajur(df, senarai_kata_kunci):
     return None
 
 def read_pdf_to_dataframe(pdf_file):
-    all_data = []
+    all_rows = []
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             tables = page.extract_tables()
             for table in tables:
                 for row in table:
                     if any(row):
-                        all_data.append([cell.replace('\n', ' ').strip() if cell else "" for cell in row])
+                        clean_row = [str(cell).replace('\n', ' ').strip() if cell else "" for cell in row]
+                        all_rows.append(clean_row)
                         
-    if not all_data:
+    if not all_rows:
         return None
         
-    header = all_data[0]
-    df_pdf = pd.DataFrame(all_data[1:], columns=header)
+    # Cari bilangan lajur maksimum di antara semua baris untuk elakkan KeyError/ValueError
+    max_cols = max(len(r) for r in all_rows)
+    
+    # Penyeragaman: Tambah petak kosong ("") untuk baris yang mempunyai kurang lajur
+    normalized_rows = [r + [""] * (max_cols - len(r)) for r in all_rows]
+    
+    # Membina tajuk lajur yang unik
+    raw_header = normalized_rows[0]
+    header = []
+    for i, col in enumerate(raw_header):
+        col_name = col.strip() if col.strip() else f"Lajur_{i+1}"
+        if col_name in header:
+            col_name = f"{col_name}_{i+1}"
+        header.append(col_name)
+        
+    df_pdf = pd.DataFrame(normalized_rows[1:], columns=header)
     return df_pdf
 
 # =========================================================
@@ -120,7 +135,6 @@ if uploaded_file is not None:
             df = pd.read_csv(uploaded_file, dtype=str)
             
         if df is not None and not df.empty:
-            # Bersihkan tajuk lajur daripada ruang kosong berlebihan
             df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
             
             # Pengesan Lajur Pintar
@@ -130,7 +144,7 @@ if uploaded_file is not None:
             
             # Senaraikan semua lajur asas untuk diabaikan sebagai subjek
             lajur_asas = [lajur_ic, lajur_nama, lajur_tingkatan, 'Bil', 'BIL', 'No', 'NO', 'Jantina', 'Kaum']
-            senarai_subjek = [c for c in df.columns if c not in lajur_asas and c is not None]
+            senarai_subjek = [c for c in df.columns if c not in lajur_asas and c is not None and not str(c).startswith('Lajur_')]
             
             if lajur_ic is None:
                 st.sidebar.warning("⚠️ Lajur Kad Pengenalan tidak dikesan secara automatik.")
@@ -161,10 +175,7 @@ with tab1:
         search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-', Contoh: 080101141234):", "")
         
         if search_ic:
-            # Bersihkan carian IC daripada tanda sengkang dan ruang kosong
             clean_search = search_ic.replace('-', '').strip()
-            
-            # Padankan IC tanpa sengkang
             murid = df[df[lajur_ic].astype(str).str.replace('-', '').str.strip() == clean_search]
             
             if not murid.empty:
