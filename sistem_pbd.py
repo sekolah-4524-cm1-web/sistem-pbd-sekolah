@@ -76,7 +76,7 @@ st.markdown("<h1 style='color: #1a73e8;'>Sistem Pelaporan & Pengurusan Data PBD<
 st.markdown("---")
 
 # =========================================================
-# FUNGSI PEMBANTU & PENAPISAN LAJUR
+# FUNGSI PEMBANTU & PEMBERSIHAN DATA
 # =========================================================
 KATA_KUNCI_BUKAN_SUBJEK = [
     'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp', 'nokp',
@@ -93,6 +93,37 @@ def dapatkan_tafsiran_tp(tp_val):
         1: ("Perlu Bimbingan / Tahu Sahaja", "badge-tp1")
     }
     return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
+
+def bersihkan_df_murid(df):
+    """Menapis tajuk berulang dari PDF berbilang muka surat dan baris kosong/jumlah."""
+    if df is None or df.empty:
+        return df
+    
+    col_ref = None
+    for c in df.columns:
+        c_lower = str(c).lower().strip()
+        if any(k in c_lower for k in ['nama', 'ic', 'kp', 'kad pengenalan', 'nokp', 'mykad']):
+            col_ref = c
+            break
+            
+    if not col_ref:
+        col_ref = df.columns[0]
+        
+    kata_kunci_sampah = [
+        'nama', 'nama murid', 'kad pengenalan', 'no. kp', 'no kp', 'nokp', 'mykad',
+        'bil', 'bil.', 'no', 'no.', 'jumlah', 'purata', 'gred', 'analisis', 'tandatangan'
+    ]
+    
+    def is_valid_student_row(val):
+        s = str(val).lower().strip()
+        if not s or s in ['nan', 'none', '']:
+            return False
+        if any(s == k or s.startswith(k + ' ') or s.endswith(' ' + k) for k in kata_kunci_sampah):
+            return False
+        return True
+        
+    df_clean = df[df[col_ref].apply(is_valid_student_row)].copy()
+    return df_clean
 
 def read_pdf_to_dataframe(pdf_file):
     all_rows = []
@@ -127,7 +158,7 @@ def read_pdf_to_dataframe(pdf_file):
         header.append(col_name)
         
     df_pdf = pd.DataFrame(normalized_rows[header_idx+1:], columns=header)
-    return df_pdf
+    return bersihkan_df_murid(df_pdf)
 
 def load_all_saved_data():
     files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
@@ -137,6 +168,7 @@ def load_all_saved_data():
     for f in files:
         try:
             temp_df = pd.read_csv(f, dtype=str)
+            temp_df = bersihkan_df_murid(temp_df)
             dfs.append(temp_df)
         except Exception:
             pass
@@ -197,6 +229,7 @@ with tab_pengurusan:
                             df_upload = read_pdf_to_dataframe(uploaded_file)
                         else:
                             df_upload = pd.read_csv(uploaded_file, dtype=str)
+                            df_upload = bersihkan_df_murid(df_upload)
                             
                         if df_upload is not None and not df_upload.empty:
                             df_upload.columns = [str(c).strip().replace('\n', ' ') for c in df_upload.columns]
@@ -208,7 +241,7 @@ with tab_pengurusan:
                             file_path = os.path.join(DATA_DIR, safe_filename)
                             
                             df_upload.to_csv(file_path, index=False)
-                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan secara kekal!")
+                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan ({len(df_upload)} murid)!")
                             st.rerun()
                         else:
                             st.error("Gagal membaca kandungan fail. Sila semak format PDF/CSV.")
@@ -226,6 +259,8 @@ with tab_pengurusan:
                 for filepath in fail_tersimpan:
                     fname = os.path.basename(filepath).replace(".csv", "").replace("_", " ")
                     temp_df = pd.read_csv(filepath, dtype=str)
+                    temp_df = bersihkan_df_murid(temp_df)
+                    
                     senarai_info.append({
                         "Fail / Kelas": fname,
                         "Jumlah Murid": len(temp_df),
@@ -259,7 +294,6 @@ with tab_utama:
     else:
         lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
         
-        # Pengesanan lajur automatik yang lebih ampuh
         for c in df_all.columns:
             c_lower = str(c).lower().strip()
             if any(k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad', 'nokp', 'no.kp', 'no_kp', 'id']):
@@ -280,7 +314,7 @@ with tab_utama:
         
         if search_ic:
             if not lajur_ic:
-                st.error("⚠️ Sistem tidak dapat mengesan lajur No. Kad Pengenalan (IC/KP) secara automatik daripada fail data. Sila pastikan fail CSV/PDF anda mempunyai tajuk lajur seperti 'NO. KP', 'NO KAD PENGENALAN', atau 'IC'.")
+                st.error("⚠️ Sistem tidak dapat mengesan lajur No. Kad Pengenalan (IC/KP) secara automatik.")
             else:
                 clean_search = search_ic.replace('-', '').strip()
                 ic_series = df_all[lajur_ic].astype(str).str.replace('-', '', regex=False).str.strip()
