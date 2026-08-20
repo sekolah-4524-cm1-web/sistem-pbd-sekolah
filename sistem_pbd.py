@@ -11,6 +11,13 @@ st.set_page_config(page_title="Sistem Pengurusan & Analisis PBD", layout="wide")
 DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
+# Tetapan Kata Laluan Admin (Boleh diubah di sini)
+ADMIN_PASSWORD = "admin123"
+
+# Inisialisasi Session State Akses Admin
+if 'is_admin' not in st.session_state:
+    st.session_state['is_admin'] = False
+
 # --- SUNTIKAN GAYA CSS PREMIUM ---
 st.markdown("""
     <style>
@@ -140,93 +147,116 @@ def load_all_saved_data():
 # =========================================================
 # TAB UTAMA: DUA MOD (ANALISIS vs PENGURUSAN DATA)
 # =========================================================
-tab_utama, tab_pengurusan = st.tabs(["🔍 Semakan & Analisis PBD", "📁 Pengurusan Storage Data Kekal"])
+tab_utama, tab_pengurusan = st.tabs(["🔍 Semakan & Analisis PBD", "🔒 Pengurusan Data (Admin Only)"])
 
 # ---------------------------------------------------------
-# TAB 2: PENGURUSAN DATA KEKAL (UPLOAD & PADAM)
+# TAB 2: PENGURUSAN DATA KEKAL (KAWALAN HANYA ADMIN)
 # ---------------------------------------------------------
 with tab_pengurusan:
-    st.subheader("📥 Muat Naik & Simpan Data Mengikut Kelas")
-    
-    col_up1, col_up2 = st.columns([1, 1])
-    
-    with col_up1:
-        st.markdown("**1. Maklumat Kelas & Fail**")
-        pilih_tingkatan = st.selectbox("Pilih Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
-        nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1 / 2 Amanah):", "")
-        uploaded_file = st.file_uploader("Pilih Fail PDF / CSV (idMe):", type=["pdf", "csv"])
+    if not st.session_state['is_admin']:
+        st.subheader("🔐 Pengesahan Pentadbir (Admin)")
+        st.info("Bahagian ini terhad kepada Pentadbir Sistem sahaja untuk muat naik atau memadam data.")
         
-        if st.button("💾 Simpan Data Secara Kekal", type="primary"):
-            if not nama_kelas.strip():
-                st.error("Sila masukkan Nama Kelas terlebih dahulu.")
-            elif uploaded_file is None:
-                st.error("Sila muat naik fail PDF atau CSV.")
-            else:
-                try:
-                    if uploaded_file.name.endswith('.pdf'):
-                        df_upload = read_pdf_to_dataframe(uploaded_file)
-                    else:
-                        df_upload = pd.read_csv(uploaded_file, dtype=str)
-                        
-                    if df_upload is not None and not df_upload.empty:
-                        df_upload.columns = [str(c).strip().replace('\n', ' ') for c in df_upload.columns]
-                        
-                        df_upload['Tingkatan_System'] = pilih_tingkatan
-                        df_upload['Kelas_System'] = nama_kelas.strip()
-                        
-                        safe_filename = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
-                        file_path = os.path.join(DATA_DIR, safe_filename)
-                        
-                        df_upload.to_csv(file_path, index=False)
-                        st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan secara kekal!")
-                        st.rerun()
-                    else:
-                        st.error("Gagal membaca kandungan fail. Sila semak format PDF/CSV.")
-                except Exception as e:
-                    st.error(f"Ralat semasa menyimpan: {e}")
-
-    with col_up2:
-        st.markdown("**2. Senarai Data Tersimpan Dalam Sistem**")
-        fail_tersimpan = glob.glob(os.path.join(DATA_DIR, "*.csv"))
-        
-        if not fail_tersimpan:
-            st.info("Belum ada data disimpan dalam sistem.")
-        else:
-            senarai_info = []
-            for filepath in fail_tersimpan:
-                fname = os.path.basename(filepath).replace(".csv", "").replace("_", " ")
-                temp_df = pd.read_csv(filepath, dtype=str)
-                senarai_info.append({
-                    "Fail / Kelas": fname,
-                    "Jumlah Murid": len(temp_df),
-                    "Path": filepath
-                })
-                
-            info_df = pd.DataFrame(senarai_info)
-            # Menetapkan indeks bermula daripada angka 1
-            info_df.index = range(1, len(info_df) + 1)
-            
-            st.dataframe(info_df[["Fail / Kelas", "Jumlah Murid"]], use_container_width=True)
-            
-            st.markdown("---")
-            st.markdown("**🗑️ Padam Data Kelas**")
-            pilih_padam = st.selectbox("Pilih Kelas Untuk Dipadam:", info_df["Fail / Kelas"].tolist())
-            
-            if st.button("❌ Padam Data Kelas Ini", type="secondary"):
-                path_to_delete = info_df[info_df["Fail / Kelas"] == pilih_padam]["Path"].values[0]
-                if os.path.exists(path_to_delete):
-                    os.remove(path_to_delete)
-                    st.success(f"Data `{pilih_padam}` telah dipadam secara kekal.")
+        col_pass, _ = st.columns([1, 2])
+        with col_pass:
+            input_pass = st.text_input("Masukkan Kata Laluan Admin:", type="password")
+            if st.button("Log Masuk Admin", type="primary"):
+                if input_pass == ADMIN_PASSWORD:
+                    st.session_state['is_admin'] = True
+                    st.success("✅ Log masuk berjaya!")
                     st.rerun()
+                else:
+                    st.error("❌ Kata laluan salah. Sila cuba lagi.")
+    else:
+        # PENTADBIR BERJAYA LOG MASUK
+        c_title, c_logout = st.columns([4, 1])
+        with c_title:
+            st.subheader("📥 Muat Naik & Memadam Data PBD Kelas")
+        with c_logout:
+            if st.button("🚪 Log Keluar Admin"):
+                st.session_state['is_admin'] = False
+                st.rerun()
+                
+        st.markdown("---")
+        
+        col_up1, col_up2 = st.columns([1, 1])
+        
+        with col_up1:
+            st.markdown("**1. Maklumat Kelas & Fail Baru**")
+            pilih_tingkatan = st.selectbox("Pilih Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
+            nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1 / 2 Amanah):", "")
+            uploaded_file = st.file_uploader("Pilih Fail PDF / CSV (idMe):", type=["pdf", "csv"])
+            
+            if st.button("💾 Simpan Data Secara Kekal", type="primary"):
+                if not nama_kelas.strip():
+                    st.error("Sila masukkan Nama Kelas terlebih dahulu.")
+                elif uploaded_file is None:
+                    st.error("Sila muat naik fail PDF atau CSV.")
+                else:
+                    try:
+                        if uploaded_file.name.endswith('.pdf'):
+                            df_upload = read_pdf_to_dataframe(uploaded_file)
+                        else:
+                            df_upload = pd.read_csv(uploaded_file, dtype=str)
+                            
+                        if df_upload is not None and not df_upload.empty:
+                            df_upload.columns = [str(c).strip().replace('\n', ' ') for c in df_upload.columns]
+                            
+                            df_upload['Tingkatan_System'] = pilih_tingkatan
+                            df_upload['Kelas_System'] = nama_kelas.strip()
+                            
+                            safe_filename = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
+                            file_path = os.path.join(DATA_DIR, safe_filename)
+                            
+                            df_upload.to_csv(file_path, index=False)
+                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan secara kekal!")
+                            st.rerun()
+                        else:
+                            st.error("Gagal membaca kandungan fail. Sila semak format PDF/CSV.")
+                    except Exception as e:
+                        st.error(f"Ralat semasa menyimpan: {e}")
+
+        with col_up2:
+            st.markdown("**2. Senarai Data Tersimpan Dalam Sistem**")
+            fail_tersimpan = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+            
+            if not fail_tersimpan:
+                st.info("Belum ada data disimpan dalam sistem.")
+            else:
+                senarai_info = []
+                for filepath in fail_tersimpan:
+                    fname = os.path.basename(filepath).replace(".csv", "").replace("_", " ")
+                    temp_df = pd.read_csv(filepath, dtype=str)
+                    senarai_info.append({
+                        "Fail / Kelas": fname,
+                        "Jumlah Murid": len(temp_df),
+                        "Path": filepath
+                    })
+                    
+                info_df = pd.DataFrame(senarai_info)
+                info_df.index = range(1, len(info_df) + 1)
+                
+                st.dataframe(info_df[["Fail / Kelas", "Jumlah Murid"]], use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("**🗑️ Padam Data Kelas**")
+                pilih_padam = st.selectbox("Pilih Kelas Untuk Dipadam:", info_df["Fail / Kelas"].tolist())
+                
+                if st.button("❌ Padam Data Kelas Ini", type="secondary"):
+                    path_to_delete = info_df[info_df["Fail / Kelas"] == pilih_padam]["Path"].values[0]
+                    if os.path.exists(path_to_delete):
+                        os.remove(path_to_delete)
+                        st.success(f"Data `{pilih_padam}` telah dipadam secara kekal.")
+                        st.rerun()
 
 # ---------------------------------------------------------
-# TAB 1: SEMAKAN & ANALISIS PBD INDIVIDU
+# TAB 1: SEMAKAN & ANALISIS PBD INDIVIDU (PENGGUNA BIASA)
 # ---------------------------------------------------------
 with tab_utama:
     df_all = load_all_saved_data()
     
     if df_all is None or df_all.empty:
-        st.warning("⚠️ **Tiada data tersimpan.** Sila pergi ke tab **'📁 Pengurusan Storage Data Kekal'** di atas untuk muat naik data mengikut kelas terlebih dahulu.")
+        st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu.")
     else:
         lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
         
