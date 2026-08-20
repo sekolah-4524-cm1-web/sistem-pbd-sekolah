@@ -321,11 +321,16 @@ with tab_utama:
                 murid = df_all[ic_series == clean_search]
                 
                 if not murid.empty:
-                    nama_murid = murid[lajur_nama].values[0] if lajur_nama and lajur_nama in murid.columns else "Murid"
-                    tingkatan_murid = murid['Tingkatan_System'].values[0] if 'Tingkatan_System' in murid.columns else "-"
-                    kelas_murid = murid['Kelas_System'].values[0] if 'Kelas_System' in murid.columns else "-"
+                    # Mengambil rekod tunggal murid (mencegah ralat jika terdapat rekod bertindih)
+                    murid_row = murid.iloc[0]
                     
-                    tp_data = murid[senarai_subjek].T.reset_index()
+                    nama_murid = murid_row[lajur_nama] if lajur_nama and lajur_nama in murid_row else "Murid"
+                    tingkatan_murid = murid_row['Tingkatan_System'] if 'Tingkatan_System' in murid_row else "-"
+                    kelas_murid = murid_row['Kelas_System'] if 'Kelas_System' in murid_row else "-"
+                    
+                    # Mengekstrak data subjek & TP secara selamat
+                    tp_series = murid_row[senarai_subjek]
+                    tp_data = tp_series.reset_index()
                     tp_data.columns = ['Subjek', 'TP_Raw']
                     
                     tp_data['TP'] = tp_data['TP_Raw'].astype(str).str.extract(r'(\d+)')[0]
