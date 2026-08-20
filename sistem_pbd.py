@@ -4,376 +4,246 @@ import plotly.express as px
 import pdfplumber
 import os
 import glob
+import re
 
-# 1. Konfigurasi Halaman & Folder Storage Setempat
-st.set_page_config(page_title="Sistem Pengurusan & Analisis PBD", layout="wide")
+st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide", page_icon="🎓")
 
 DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
+ADMIN_PASSWORD = "admin123"
 
-# --- SUNTIKAN GAYA CSS PREMIUM ---
+LOGO_PATH = None
+for ext in ["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"]:
+    if os.path.exists(f"logo.{ext}"):
+        LOGO_PATH = f"logo.{ext}"
+        break
+
+if 'is_admin' not in st.session_state:
+    st.session_state['is_admin'] = False
+
 st.markdown("""
     <style>
+    .stApp { background-color: #f8fafc; }
+    .school-title {
+        font-size: 28px; font-weight: 800;
+        background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;
+    }
+    .system-title { font-size: 15px; color: #475569; margin: 2px 0 0 0; }
     .profile-card {
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-        padding: 22px;
-        border-radius: 14px;
+        background: #ffffff; padding: 20px; border-radius: 12px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        border-left: 6px solid #1a73e8;
-        margin-bottom: 25px;
+        border-left: 6px solid #2563eb; border: 1px solid #e2e8f0;
+        margin-bottom: 20px;
     }
-    .pbd-table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        background-color: white;
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
-    .pbd-table th {
-        background-color: #f1f3f4;
-        color: #3c4043;
-        padding: 14px;
-        font-weight: 700;
-        text-align: left;
-        border-bottom: 2px solid #dadce0;
-    }
-    .pbd-table td {
-        padding: 12px 14px;
-        border-bottom: 1px solid #f1f3f5;
-        color: #343a40;
-    }
-    .pbd-table tr:hover { background-color: #f8f9fa; }
-    .badge {
-        padding: 6px 14px;
-        border-radius: 20px;
-        font-weight: bold;
-        color: white;
-        display: inline-block;
-        font-size: 13px;
-        text-align: center;
-        min-width: 60px;
-    }
-    .badge-tp6 { background-color: #0d904f; }
-    .badge-tp5 { background-color: #34a853; }
-    .badge-tp4 { background-color: #1a73e8; }
-    .badge-tp3 { background-color: #fbbc04; color: #333; }
-    .badge-tp2 { background-color: #e67c73; }
-    .badge-tp1 { background-color: #d93025; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- TAJUK UTAMA ---
-st.markdown("<h1 style='color: #1a73e8;'>Sistem Pelaporan & Pengurusan Data PBD</h1>", unsafe_allow_html=True)
+col_logo, col_header = st.columns([1, 6])
+with col_logo:
+    if LOGO_PATH and os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, width=85)
+    else:
+        st.markdown("<h1 style='margin:0; text-align:center;'>🏫</h1>", unsafe_allow_html=True)
+with col_header:
+    st.markdown("""
+        <h1 class="school-title">SMK DATO' SYED OMAR</h1>
+        <p class="system-title">✨ Sistem Pelaporan & Pengurusan Data Pentaksiran Bilik Darjah (PBD)</p>
+    """, unsafe_allow_html=True)
+
 st.markdown("---")
 
-# =========================================================
-# FUNGSI PEMBANTU & PENAPISAN LAJUR
-# =========================================================
-KATA_KUNCI_BUKAN_SUBJEK = [
-    'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp',
-    'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
-]
+def extract_ic_from_text(text_line):
+    """Mengekstrak No KP 12-digit walaupun bersempang (cth: 111013-02-0847 -> 111013020847)"""
+    match = re.search(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', text_line)
+    if match:
+        return re.sub(r'\D', '', match.group(0))
+    return None
 
-def dapatkan_tafsiran_tp(tp_val):
-    tafsiran = {
-        6: ("Cemerlang / Tahu, Faham & Boleh Meneladani", "badge-tp6"),
-        5: ("Sangat Baik / Tahu, Faham & Boleh Buat dengan Adab Terpuji", "badge-tp5"),
-        4: ("Baik / Tahu, Faham & Boleh Buat Beradab", "badge-tp4"),
-        3: ("Memuaskan / Tahu, Faham & Boleh Buat", "badge-tp3"),
-        2: ("Tahap Minimum / Tahu & Faham", "badge-tp2"),
-        1: ("Perlu Bimbingan / Tahu Sahaja", "badge-tp1")
-    }
-    return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
-
-def read_pdf_to_dataframe(pdf_file):
-    all_rows = []
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            tables = page.extract_tables()
-            for table in tables:
-                for row in table:
-                    if any(row):
-                        clean_row = [str(cell).replace('\n', ' ').strip() if cell else "" for cell in row]
-                        all_rows.append(clean_row)
-                        
-    if not all_rows:
-        return None
-        
-    max_cols = max(len(r) for r in all_rows)
-    normalized_rows = [r + [""] * (max_cols - len(r)) for r in all_rows]
+def parse_idme_file(uploaded_file):
+    records = []
     
-    header_idx = 0
-    for idx, row in enumerate(normalized_rows[:15]):
-        row_str = " ".join(row).lower()
-        if any(k in row_str for k in ['nama', 'kp', 'ic', 'kad pengenalan', 'mykad']):
-            header_idx = idx
-            break
-            
-    raw_header = normalized_rows[header_idx]
-    header = []
-    for i, col in enumerate(raw_header):
-        col_name = col.strip() if col.strip() else f"Lajur_{i+1}"
-        if col_name in header:
-            col_name = f"{col_name}_{i+1}"
-        header.append(col_name)
-        
-    df_pdf = pd.DataFrame(normalized_rows[header_idx+1:], columns=header)
-    return df_pdf
+    if uploaded_file.name.endswith('.pdf'):
+        with pdfplumber.open(uploaded_file) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if not text:
+                    continue
+                lines = text.split('\n')
+                for line in lines:
+                    ic = extract_ic_from_text(line)
+                    if ic:
+                        clean_line = re.sub(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', '', line)
+                        clean_line = re.sub(r'[^a-zA-L\s@/\']', ' ', clean_line)
+                        words = [w.strip() for w in clean_line.split() if len(w.strip()) > 1]
+                        
+                        ignored = ['BIL', 'LELAKI', 'PEREMPUAN', 'MELAYU', 'CINA', 'INDIA', 'ISLAM', 'KPM', 'PBD', 'MUKA', 'SURAT']
+                        name_words = [w for w in words if w.upper() not in ignored]
+                        nama = " ".join(name_words) if name_words else "MURID"
+                        
+                        records.append({
+                            'NO_KP': ic,
+                            'NAMA': nama,
+                            'RAW_TEXT': line
+                        })
+    else:
+        df_raw = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
+        for _, row in df_raw.iterrows():
+            row_str = " ".join([str(v) for v in row.values])
+            ic = extract_ic_from_text(row_str)
+            if ic:
+                clean_str = re.sub(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', '', row_str)
+                clean_str = re.sub(r'[^a-zA-L\s@/\']', ' ', clean_str)
+                words = [w.strip() for w in clean_str.split() if len(w.strip()) > 1]
+                nama = " ".join(words[:4]) if words else "MURID"
+                records.append({
+                    'NO_KP': ic,
+                    'NAMA': nama,
+                    'RAW_TEXT': row_str
+                })
+
+    return pd.DataFrame(records) if records else None
 
 def load_all_saved_data():
     files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
-    if not files:
-        return None
+    if not files: return None
     dfs = []
     for f in files:
         try:
-            temp_df = pd.read_csv(f, dtype=str)
+            temp_df = pd.read_csv(f, dtype=str, keep_default_na=False)
             dfs.append(temp_df)
-        except Exception:
-            pass
-    if dfs:
-        return pd.concat(dfs, ignore_index=True)
-    return None
+        except Exception: pass
+    return pd.concat(dfs, ignore_index=True) if dfs else None
 
-# =========================================================
-# TAB UTAMA: DUA MOD (ANALISIS vs PENGURUSAN DATA)
-# =========================================================
-tab_utama, tab_pengurusan = st.tabs(["🔍 Semakan & Analisis PBD", "📁 Pengurusan Storage Data Kekal"])
+tab_utama, tab_pengurusan = st.tabs(["🔍 Semakan & Analisis PBD", "🔒 Pengurusan Data & Logo (Admin)"])
 
-# ---------------------------------------------------------
-# TAB 2: PENGURUSAN DATA KEKAL (UPLOAD & PADAM)
-# ---------------------------------------------------------
 with tab_pengurusan:
-    st.subheader("📥 Muat Naik & Simpan Data Mengikut Kelas")
-    
-    col_up1, col_up2 = st.columns([1, 1])
-    
-    with col_up1:
-        st.markdown("**1. Maklumat Kelas & Fail**")
-        pilih_tingkatan = st.selectbox("Pilih Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
-        nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1 / 2 Amanah):", "")
-        uploaded_file = st.file_uploader("Pilih Fail PDF / CSV (idMe):", type=["pdf", "csv"])
-        
-        if st.button("💾 Simpan Data Secara Kekal", type="primary"):
-            if not nama_kelas.strip():
-                st.error("Sila masukkan Nama Kelas terlebih dahulu.")
-            elif uploaded_file is None:
-                st.error("Sila muat naik fail PDF atau CSV.")
-            else:
-                try:
-                    if uploaded_file.name.endswith('.pdf'):
-                        df_upload = read_pdf_to_dataframe(uploaded_file)
-                    else:
-                        df_upload = pd.read_csv(uploaded_file, dtype=str)
-                        
-                    if df_upload is not None and not df_upload.empty:
-                        df_upload.columns = [str(c).strip().replace('\n', ' ') for c in df_upload.columns]
-                        
-                        df_upload['Tingkatan_System'] = pilih_tingkatan
-                        df_upload['Kelas_System'] = nama_kelas.strip()
-                        
-                        safe_filename = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
-                        file_path = os.path.join(DATA_DIR, safe_filename)
-                        
-                        df_upload.to_csv(file_path, index=False)
-                        st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan secara kekal!")
-                        st.rerun()
-                    else:
-                        st.error("Gagal membaca kandungan fail. Sila semak format PDF/CSV.")
-                except Exception as e:
-                    st.error(f"Ralat semasa menyimpan: {e}")
-
-    with col_up2:
-        st.markdown("**2. Senarai Data Tersimpan Dalam Sistem**")
-        fail_tersimpan = glob.glob(os.path.join(DATA_DIR, "*.csv"))
-        
-        if not fail_tersimpan:
-            st.info("Belum ada data disimpan dalam sistem.")
-        else:
-            senarai_info = []
-            for filepath in fail_tersimpan:
-                fname = os.path.basename(filepath).replace(".csv", "").replace("_", " ")
-                temp_df = pd.read_csv(filepath, dtype=str)
-                senarai_info.append({
-                    "Fail / Kelas": fname,
-                    "Jumlah Murid": len(temp_df),
-                    "Path": filepath
-                })
+    if not st.session_state['is_admin']:
+        st.subheader("🔐 Log Masuk Pentadbir (Admin)")
+        col_pass, _ = st.columns([1, 2])
+        with col_pass:
+            input_pass = st.text_input("Kata Laluan Admin:", type="password")
+            if st.button("Log Masuk", type="primary"):
+                if input_pass == ADMIN_PASSWORD:
+                    st.session_state['is_admin'] = True
+                    st.rerun()
+                else: st.error("❌ Kata laluan salah.")
+    else:
+        c_title, c_logout = st.columns([4, 1])
+        with c_title: st.subheader("⚙️ Panel Pengurusan Data Kelas & Logo")
+        with c_logout:
+            if st.button("🚪 Log Keluar Admin"):
+                st.session_state['is_admin'] = False
+                st.rerun()
                 
-            info_df = pd.DataFrame(senarai_info)
-            # Menetapkan indeks bermula daripada angka 1
-            info_df.index = range(1, len(info_df) + 1)
+        st.markdown("---")
+        col_up1, col_up2 = st.columns([1, 1])
+        
+        with col_up1:
+            st.markdown("**1. Muat Naik Fail idMe Kelas**")
+            pilih_tingkatan = st.selectbox("Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
+            nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1):", "")
+            uploaded_file = st.file_uploader("Pilih Fail PDF / CSV idMe:", type=["pdf", "csv"])
             
-            st.dataframe(info_df[["Fail / Kelas", "Jumlah Murid"]], use_container_width=True)
-            
+            if uploaded_file is not None:
+                parsed_df = parse_idme_file(uploaded_file)
+                if parsed_df is not None and not parsed_df.empty:
+                    st.success(f"✅ Dikesan **{len(parsed_df)} murid** dalam fail ini!")
+                    st.dataframe(parsed_df[['NO_KP', 'NAMA']], use_container_width=True)
+                    
+                    if st.button("💾 Simpan Data Kelas Ini", type="primary"):
+                        if not nama_kelas.strip():
+                            st.error("Sila masukkan Nama Kelas dahulu.")
+                        else:
+                            parsed_df['Tingkatan_System'] = pilih_tingkatan
+                            parsed_df['Kelas_System'] = nama_kelas.strip()
+                            safe_fn = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
+                            parsed_df.to_csv(os.path.join(DATA_DIR, safe_fn), index=False, encoding='utf-8-sig')
+                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan!")
+                            st.rerun()
+                else:
+                    st.error("❌ Gagal mengesan No. KP daripada fail PDF. Pastikan fail mengandungi maklumat murid idMe.")
+
             st.markdown("---")
-            st.markdown("**🗑️ Padam Data Kelas**")
-            pilih_padam = st.selectbox("Pilih Kelas Untuk Dipadam:", info_df["Fail / Kelas"].tolist())
-            
-            if st.button("❌ Padam Data Kelas Ini", type="secondary"):
-                path_to_delete = info_df[info_df["Fail / Kelas"] == pilih_padam]["Path"].values[0]
-                if os.path.exists(path_to_delete):
-                    os.remove(path_to_delete)
-                    st.success(f"Data `{pilih_padam}` telah dipadam secara kekal.")
+            st.markdown("**🖼️ Muat Naik Logo Sekolah**")
+            uploaded_logo = st.file_uploader("Pilih Fail Logo (PNG / JPG):", type=["png", "jpg", "jpeg"])
+            if st.button("🖼️ Simpan Logo"):
+                if uploaded_logo is not None:
+                    ext = uploaded_logo.name.split('.')[-1]
+                    for f in glob.glob("logo.*"): os.remove(f)
+                    with open(f"logo.{ext}", "wb") as f: f.write(uploaded_logo.getbuffer())
+                    st.success("✅ Logo dikemas kini!")
                     st.rerun()
 
-# ---------------------------------------------------------
-# TAB 1: SEMAKAN & ANALISIS PBD INDIVIDU
-# ---------------------------------------------------------
+        with col_up2:
+            st.markdown("**2. Data Kelas Tersimpan**")
+            files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+            if not files: st.info("Tiada data tersimpan dalam sistem.")
+            else:
+                info_list = []
+                for fp in files:
+                    fn = os.path.basename(fp).replace(".csv", "").replace("_", " ")
+                    tdf = pd.read_csv(fp, dtype=str, keep_default_na=False)
+                    info_list.append({"Kelas": fn, "Jumlah Murid": len(tdf), "Path": fp})
+                info_df = pd.DataFrame(info_list)
+                st.dataframe(info_df[["Kelas", "Jumlah Murid"]], use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("**🗑️ Pembersihan Data**")
+                if st.button("🔥 Reset Total (Padam Semua Data Lama)", type="secondary"):
+                    for fp in files: os.remove(fp)
+                    st.success("Semua fail lama dibersihkan.")
+                    st.rerun()
+
 with tab_utama:
     df_all = load_all_saved_data()
     
     if df_all is None or df_all.empty:
-        st.warning("⚠️ **Tiada data tersimpan.** Sila pergi ke tab **'📁 Pengurusan Storage Data Kekal'** di atas untuk muat naik data mengikut kelas terlebih dahulu.")
+        st.warning("⚠️ **Tiada data tersimpan dalam sistem.** Sila muat naik fail PDF di Tab Admin terlebih dahulu.")
     else:
-        lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
-        
-        for c in df_all.columns:
-            c_lower = c.lower()
-            if any(k == c_lower or k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad']):
-                if not lajur_ic: lajur_ic = c
-            elif any(k == c_lower or k in c_lower for k in ['nama', 'student', 'murid']):
-                if not lajur_nama: lajur_nama = c
-            elif any(k == c_lower or k in c_lower for k in ['tingkatan_system', 'kelas_system', 'tingkatan', 'kelas']):
-                if not lajur_tingkatan: lajur_tingkatan = c
+        search_input = st.text_input("🔎 Masukkan No. Kad Pengenalan ATAU Nama Murid:", value="", placeholder="Contoh No. KP: 111013020847 ATAU 111013-02-0847").strip()
+        matched_row = None
+        search_digits = re.sub(r'\D', '', search_input)
 
-        senarai_subjek = []
-        for col in df_all.columns:
-            col_clean = col.lower().strip()
-            is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
-            if not is_metadata and col not in [lajur_ic, lajur_nama, lajur_tingkatan, 'Tingkatan_System', 'Kelas_System']:
-                senarai_subjek.append(col)
+        if search_input:
+            if len(search_digits) >= 6:
+                for idx, row in df_all.iterrows():
+                    db_ic = str(row.get('NO_KP', ''))
+                    if search_digits in db_ic:
+                        matched_row = row
+                        break
 
-        search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-'):", "")
-        
-        if search_ic:
-            clean_search = search_ic.replace('-', '').strip()
-            murid = df_all[df_all[lajur_ic].astype(str).str.replace('-', '').str.strip() == clean_search]
-            
-            if not murid.empty:
-                nama_murid = murid[lajur_nama].values[0] if lajur_nama in murid.columns else "Murid"
-                tingkatan_murid = murid['Tingkatan_System'].values[0] if 'Tingkatan_System' in murid.columns else "-"
-                kelas_murid = murid['Kelas_System'].values[0] if 'Kelas_System' in murid.columns else "-"
-                
-                tp_data = murid[senarai_subjek].T.reset_index()
-                tp_data.columns = ['Subjek', 'TP_Raw']
-                
-                tp_data['TP'] = tp_data['TP_Raw'].astype(str).str.extract(r'(\d+)')[0]
-                tp_data = tp_data.dropna(subset=['TP'])
-                tp_data['TP'] = tp_data['TP'].astype(int)
-                tp_data = tp_data[(tp_data['TP'] >= 1) & (tp_data['TP'] <= 6)]
-                
-                tp_data['TP_Str'] = "TP " + tp_data['TP'].astype(str)
-                
-                total_subjek = len(tp_data)
-                tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
-                tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
-                
-                st.markdown(f"""
-<div class="profile-card">
-    <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
-    <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
-    <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b>{search_ic}</b></p>
-</div>
-""", unsafe_allow_html=True)
-                
-                m1, m2, m3, m4 = st.columns(4)
-                with m1:
-                    st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
-                with m2:
-                    st.metric("Subjek Penguasaan Tinggi (TP 5-6)", f"{tp_cemerlang} Subjek")
-                with m3:
-                    st.metric("Subjek Bimbingan (TP 1-2)", f"{tp_perlu_perhatian} Subjek")
-                with m4:
-                    tp_max = tp_data['TP'].max() if not tp_data.empty else 0
-                    st.metric("Pencapaian TP Tertinggi", f"TP {tp_max}")
-                    
-                st.markdown("---")
-                
-                col_graf, col_jadual = st.columns([10, 12])
-                
-                with col_graf:
-                    st.subheader("📊 Pencapaian TP Mengikut Subjek")
-                    
-                    color_map = {
-                        'TP 6': '#0d904f', 
-                        'TP 5': '#34a853', 
-                        'TP 4': '#1a73e8', 
-                        'TP 3': '#fbbc04', 
-                        'TP 2': '#e67c73', 
-                        'TP 1': '#d93025'
-                    }
-                    
-                    fig_bar = px.bar(
-                        tp_data,
-                        x='TP',
-                        y='Subjek',
-                        orientation='h',
-                        text='TP_Str',
-                        color='TP_Str',
-                        color_discrete_map=color_map,
-                        title="Skor TP Bagi Setiap Subjek"
-                    )
-                    fig_bar.update_layout(
-                        xaxis=dict(range=[0, 6.5], dtick=1, title="Tahap Penguasaan (TP)"),
-                        yaxis=dict(title="", categoryorder='total ascending'),
-                        showlegend=False,
-                        height=450
-                    )
-                    fig_bar.update_traces(textposition='outside')
-                    st.plotly_chart(fig_bar, use_container_width=True)
+            if matched_row is None and len(search_input) >= 3:
+                for idx, row in df_all.iterrows():
+                    db_nama = str(row.get('NAMA', '')).lower()
+                    if search_input.lower() in db_nama:
+                        matched_row = row
+                        break
 
-                with col_jadual:
-                    st.subheader("📋 Senarai Pencapaian Setiap Subjek")
-                    
-                    rows_html = ""
-                    for _, row in tp_data.iterrows():
-                        subjek_name = row['Subjek']
-                        tp_val = row['TP']
-                        tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
-                        rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #495057;'>{tafsiran_txt}</td></tr>"
-                    
-                    html_table = f"<table class='pbd-table'><thead><tr><th style='width: 30%;'>Subjek</th><th style='width: 25%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>"
-                    
-                    st.markdown(html_table, unsafe_allow_html=True)
-                    
-                st.markdown("---")
-                st.subheader("📈 Analisis Taburan Penguasaan Murid")
-                
-                c_pie, c_analisis = st.columns([1, 1])
-                
-                with c_pie:
-                    taburan_tp = tp_data['TP_Str'].value_counts().reset_index()
-                    taburan_tp.columns = ['TP_Str', 'Bilangan']
-                    
-                    fig_pie = px.pie(
-                        taburan_tp, 
-                        values='Bilangan', 
-                        names='TP_Str',
-                        hole=0.4,
-                        title="Nisbah Taburan TP Keseluruhan Subjek",
-                        color='TP_Str',
-                        color_discrete_map=color_map
-                    )
-                    st.plotly_chart(fig_pie, use_container_width=True)
-                    
-                with c_analisis:
-                    st.markdown("#### Ringkasan Analisis Pentaksiran")
-                    
-                    subjek_tinggi = tp_data[tp_data['TP'] >= 5]['Subjek'].tolist()
-                    subjek_rendah = tp_data[tp_data['TP'] <= 2]['Subjek'].tolist()
-                    
-                    if subjek_tinggi:
-                        st.success(f"🌟 **Kekuatan:** Murid menonjol dalam **{len(subjek_tinggi)}** subjek ({', '.join(subjek_tinggi)}).")
-                    else:
-                        st.info("ℹ️ Tiada subjek mencapai TP 5 atau TP 6 buat masa ini.")
-                        
-                    if subjek_rendah:
-                        st.error(f"⚠️ **Saranan Intervensi:** Bimbingan khusus diperlukan bagi **{len(subjek_rendah)}** subjek ({', '.join(subjek_rendah)}).")
-                    else:
-                        st.success("✅ **Prestasi Baik:** Semua subjek telah melepasi Tahap Penguasaan Minimum (TP 3 dan ke atas).")
+        if search_input and matched_row is None:
+            st.error(f"❌ Rekod murid `{search_input}` tidak dijumpai.")
+            with st.expander("🔍 Klik Di Sini Untuk Lihat Senarai No. KP Yang Berjaya Disimpan"):
+                cols = [c for c in ['NO_KP', 'NAMA', 'Kelas_System', 'Tingkatan_System'] if c in df_all.columns]
+                st.dataframe(df_all[cols] if cols else df_all, use_container_width=True)
 
-            else:
-                st.error("No. Kad Pengenalan tidak dijumpai dalam mana-mana kelas tersimpan.")
+        elif matched_row is not None:
+            nama_m = matched_row.get('NAMA', 'MURID')
+            ic_m = matched_row.get('NO_KP', search_digits)
+            tingkatan_m = matched_row.get('Tingkatan_System', '-')
+            kelas_m = matched_row.get('Kelas_System', '-')
+
+            st.markdown(f"""
+            <div class="profile-card">
+                <span style="color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU — SMK DATO' SYED OMAR</span>
+                <h2 style="margin: 4px 0; color: #0f172a; font-size: 22px;">{nama_m}</h2>
+                <p style="margin: 0; font-size: 14px; color: #475569;">Tingkatan / Kelas: <b>{tingkatan_m} ({kelas_m})</b> &nbsp;|&nbsp; No. KP: <b>{ic_m}</b></p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col_a, col_b = st.columns([1, 1])
+            with col_a:
+                st.metric("Status Carian", "REKOD DIJUMPAI ✅")
+                st.write(f"**No. Kad Pengenalan:** `{ic_m}`")
+                st.write(f"**Nama Penuh:** `{nama_m}`")
+            with col_b:
+                st.success("Rekod murid disahkan wujud dan sedia dalam pangkalan data.")
