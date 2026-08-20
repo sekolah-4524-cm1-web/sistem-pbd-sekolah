@@ -41,17 +41,6 @@ st.markdown("""
         border-left: 6px solid #2563eb; border: 1px solid #e2e8f0;
         margin-bottom: 20px;
     }
-    .pbd-table {
-        width: 100%; border-collapse: separate; border-spacing: 0;
-        background-color: white; border-radius: 10px; overflow: hidden;
-        border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-    }
-    .pbd-table th { background: #0f172a; color: #ffffff; padding: 12px 14px; font-weight: 600; font-size: 13px; }
-    .pbd-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 13px; }
-    .badge { padding: 4px 12px; border-radius: 14px; font-weight: 700; color: white; display: inline-block; font-size: 11px; }
-    .badge-tp6 { background: #059669; } .badge-tp5 { background: #16a34a; }
-    .badge-tp4 { background: #2563eb; } .badge-tp3 { background: #d97706; }
-    .badge-tp2 { background: #ea580c; } .badge-tp1 { background: #dc2626; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -71,16 +60,16 @@ with col_header:
 st.markdown("---")
 
 # =========================================================
-# ENJIN PEMPROSESAN DATA KALIS-AGAL (FOOLPROOF PARSER)
+# ENJIN PEMPROSESAN DATA KALIS-AGAL
 # =========================================================
 def extract_clean_ic(text):
-    """Mengekstrak 12 digit IC daripada sebarang teks atau nombor."""
+    """Mengekstrak 12 digit IC daripada sebarang teks."""
     digits = re.sub(r'\D', '', str(text))
     matches = re.findall(r'\d{12}', digits)
     return matches[0] if matches else None
 
 def parse_idme_file(uploaded_file):
-    """Membaca fail PDF/CSV idMe dan mengekstrak rekod murid yang sah sahaja."""
+    """Membaca fail PDF/CSV idMe dan mengekstrak rekod murid yang sah."""
     records = []
     
     if uploaded_file.name.endswith('.pdf'):
@@ -92,13 +81,11 @@ def parse_idme_file(uploaded_file):
                         if not row or not any(row):
                             continue
                         row_str = " ".join([str(c) for c in row if c])
-                        # Abai baris header/footer idMe
                         if any(x in row_str.lower() for x in ['muka surat', 'disahkan', 'tarikh cetak', 'kementerian']):
                             continue
                         
                         ic = extract_clean_ic(row_str)
                         if ic:
-                            # Cari nama (teks abjad panjang)
                             clean_cells = [str(c).strip().replace('\n', ' ') for c in row if c]
                             nama = ""
                             for cell in clean_cells:
@@ -106,24 +93,14 @@ def parse_idme_file(uploaded_file):
                                 if len(clean_c) > 3 and not extract_clean_ic(cell):
                                     nama = clean_c
                                     break
-                            if not nama:
-                                nama = "MURID"
                             
-                            # Cari nilai TP (1-6)
-                            tp_list = []
-                            for cell in clean_cells:
-                                nums = re.findall(r'\b[1-6]\b', str(cell))
-                                if nums and not extract_clean_ic(cell):
-                                    tp_list.extend(nums)
-                                    
                             records.append({
                                 'NO_KP': ic,
-                                'NAMA': nama,
+                                'NAMA': nama if nama else "MURID",
                                 'RAW_ROW': row_str,
                                 'CELLS': clean_cells
                             })
     else:
-        # Pembacaan CSV / Excel export
         df_raw = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
         for _, row in df_raw.iterrows():
             row_str = " ".join([str(v) for v in row.values])
@@ -142,12 +119,7 @@ def parse_idme_file(uploaded_file):
                     'CELLS': [str(v) for v in row.values]
                 })
 
-    if not records:
-        return None
-
-    # Bina DataFrame bersiri
-    df_result = pd.DataFrame(records)
-    return df_result
+    return pd.DataFrame(records) if records else None
 
 def load_all_saved_data():
     files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
@@ -159,17 +131,6 @@ def load_all_saved_data():
             dfs.append(temp_df)
         except Exception: pass
     return pd.concat(dfs, ignore_index=True) if dfs else None
-
-def dapatkan_tafsiran_tp(tp_val):
-    tafsiran = {
-        6: ("Cemerlang / Tahu, Faham & Boleh Meneladani", "badge-tp6"),
-        5: ("Sangat Baik / Tahu, Faham & Boleh Buat Beradab Terpuji", "badge-tp5"),
-        4: ("Baik / Tahu, Faham & Boleh Buat Beradab", "badge-tp4"),
-        3: ("Memuaskan / Tahu, Faham & Boleh Buat", "badge-tp3"),
-        2: ("Tahap Minimum / Tahu & Faham", "badge-tp2"),
-        1: ("Perlu Bimbingan / Tahu Sahaja", "badge-tp1")
-    }
-    return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
 
 # =========================================================
 # TAB UTAMA
@@ -212,7 +173,9 @@ with tab_pengurusan:
                 if parsed_df is not None and not parsed_df.empty:
                     st.success(f"✅ Dikesan **{len(parsed_df)} murid** dalam fail ini.")
                     st.markdown("**Pra-paparan Data Yang Dikesan:**")
-                    st.dataframe(parsed_df[['NAMA', 'NO_KP']], use_container_width=True)
+                    
+                    show_cols = [c for c in ['NAMA', 'NO_KP'] if c in parsed_df.columns]
+                    st.dataframe(parsed_df[show_cols], use_container_width=True)
                     
                     if st.button("💾 Simpan Data Kelas Ini", type="primary"):
                         if not nama_kelas.strip():
@@ -222,10 +185,10 @@ with tab_pengurusan:
                             parsed_df['Kelas_System'] = nama_kelas.strip()
                             safe_fn = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
                             parsed_df.to_csv(os.path.join(DATA_DIR, safe_fn), index=False, encoding='utf-8-sig')
-                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan secara kekal!")
+                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan!")
                             st.rerun()
                 else:
-                    st.error("❌ Gagal mengekstrak No. KP murid daripada fail. Sila pastikan fail adalah laporan idMe sah.")
+                    st.error("❌ Gagal mengekstrak No. KP murid daripada fail.")
 
             st.markdown("---")
             st.markdown("### 🖼️ Muat Naik Logo Sekolah")
@@ -247,9 +210,9 @@ with tab_pengurusan:
                 for fp in files:
                     fn = os.path.basename(fp).replace(".csv", "").replace("_", " ")
                     tdf = pd.read_csv(fp, dtype=str, keep_default_na=False)
-                    info_list.append({"Kelas": fn, "Jumlah Murid": len(tdf), "Path": fp})
+                    info_list.append({"Kelas": fn, "Jumlah Rekod": len(tdf), "Path": fp})
                 info_df = pd.DataFrame(info_list)
-                st.dataframe(info_df[["Kelas", "Jumlah Murid"]], use_container_width=True)
+                st.dataframe(info_df[["Kelas", "Jumlah Rekod"]], use_container_width=True)
                 
                 st.markdown("---")
                 st.markdown("### 🗑️ Padam Data Kelas")
@@ -260,7 +223,7 @@ with tab_pengurusan:
 
                 if st.button("🔥 Padam Semua Data Lama (Reset Total)"):
                     for fp in files: os.remove(fp)
-                    st.success("Semua data telah dibersihkan.")
+                    st.success("Semua data lama dibersihkan.")
                     st.rerun()
 
 # ---------------------------------------------------------
@@ -280,37 +243,34 @@ with tab_utama:
             # 1. Carian No. KP
             if len(search_digits) >= 6:
                 for idx, row in df_all.iterrows():
-                    db_ic = str(row.get('NO_KP', ''))
-                    if search_digits in db_ic:
+                    row_str = " ".join([str(v) for v in row.values])
+                    if search_digits in re.sub(r'\D', '', row_str):
                         matched_row = row
                         break
 
             # 2. Carian Nama Murid
             if matched_row is None and len(search_input) >= 3:
                 for idx, row in df_all.iterrows():
-                    db_nama = str(row.get('NAMA', '')).lower()
-                    if search_input.lower() in db_nama:
+                    row_str = " ".join([str(v) for v in row.values]).lower()
+                    if search_input.lower() in row_str:
                         matched_row = row
                         break
 
         if search_input and matched_row is None:
             st.error(f"❌ Rekod murid `{search_input}` tidak dijumpai dalam pangkalan data.")
-            with st.expander("🔍 Klik Di Sini Untuk Semak Senarai Murid Yang Ada Dalam Sistem"):
-                st.dataframe(df_all[['NAMA', 'NO_KP', 'Kelas_System']], use_container_width=True)
+            with st.expander("🔍 Klik Di Sini Untuk Semak Senarai Data Tersimpan"):
+                # PAPARAN KALIS-RALAT (Mencegah KeyError)
+                available_cols = [c for c in ['NAMA', 'NO_KP', 'Kelas_System', 'Tingkatan_System'] if c in df_all.columns]
+                if available_cols:
+                    st.dataframe(df_all[available_cols], use_container_width=True)
+                else:
+                    st.dataframe(df_all, use_container_width=True)
 
         elif matched_row is not None:
-            nama_m = matched_row.get('NAMA', 'MURID')
-            ic_m = matched_row.get('NO_KP', '-')
+            nama_m = matched_row.get('NAMA', next((v for v in matched_row.values if len(str(v)) > 3 and not str(v).isdigit()), "MURID"))
+            ic_m = matched_row.get('NO_KP', search_digits)
             tingkatan_m = matched_row.get('Tingkatan_System', '-')
             kelas_m = matched_row.get('Kelas_System', '-')
-            raw_cells = eval(matched_row.get('CELLS', '[]')) if isinstance(matched_row.get('CELLS'), str) else matched_row.get('CELLS', [])
-
-            # Ekstrak TP daripada sel
-            tp_numbers = []
-            for cell in raw_cells:
-                val = str(cell).strip()
-                if val.isdigit() and 1 <= int(val) <= 6:
-                    tp_numbers.append(int(val))
 
             st.markdown(f"""
             <div class="profile-card">
@@ -322,8 +282,8 @@ with tab_utama:
 
             col_a, col_b = st.columns([1, 1])
             with col_a:
-                st.metric("Status Carian", "REKOD DIJUMPAI ✅")
-                st.write(f"**No. Kad Pengenalan Sah:** `{ic_m}`")
+                st.metric("Status Rekod", "BERJAYA DIJUMPAI ✅")
+                st.write(f"**No. Kad Pengenalan:** `{ic_m}`")
                 st.write(f"**Nama Penuh:** `{nama_m}`")
             with col_b:
-                st.info("💡 Data pentaksiran murid telah disahkan wujud dan sedia untuk pelaporan PBD.")
+                st.success(" Rekod murid disahkan wujud dan tersimpan dengan selamat.")
