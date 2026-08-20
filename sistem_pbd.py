@@ -50,7 +50,7 @@ def clean_name(text, ic_str):
     ignored = ['LELAKI', 'PEREMPUAN', 'ISLAM', 'MELAYU', 'CINA', 'INDIA', 'BUMIPUTERA', 'KPM', 'PBD', 'NAMA', 'MURID', 'TINGKATAN', 'KELAS', 'NO', 'KAD', 'PENGENALAN', 'MYKID', 'TARIKH', 'TAHUN', 'MUKA', 'SURAT', 'SEKOLAH']
     name_words = [w for w in words if w not in ignored]
     nama = " ".join(name_words[:7]).strip()
-    return nama if len(nama) > 3 else "SILA EDIT NAMA" # Tukar dari MURID
+    return nama if len(nama) > 3 else "SILA EDIT NAMA"
 
 def parse_data_file(uploaded_file):
     records = []
@@ -161,7 +161,8 @@ with tab_utama:
         if search_input and matched_row is None: st.error("❌ Rekod tidak dijumpai.")
         elif matched_row is not None:
             nama_m = matched_row.get('NAMA', 'TIADA MAKLUMAT')
-            ic_m = matched_row.get('NO_KP', search_digits)
+            # RALAT DIPERBETULKAN DI BAWAH INI (Tukar dari search_digits kepada s_digits)
+            ic_m = matched_row.get('NO_KP', s_digits)
             tingkatan_m = matched_row.get('Tingkatan_System', '-')
             kelas_m = matched_row.get('Kelas_System', '-')
 
@@ -173,7 +174,6 @@ with tab_utama:
             </div>
             """, unsafe_allow_html=True)
             
-            # MENGEMBALIKAN PAPARAN LENGKAP YANG HILANG
             col_a, col_b = st.columns([1, 1])
             with col_a:
                 st.metric("Status Carian", "REKOD DIJUMPAI ✅")
