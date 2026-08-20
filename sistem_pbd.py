@@ -81,18 +81,18 @@ KATA_KUNCI_BUKAN_SUBJEK = [
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
 ]
 
-def clean_ic(val):
-    """Nyahformat perpuluhan/notasi saintifik kepada rentetan digit bersih."""
+def clean_digits(val):
+    """Mengekstrak angka sahaja secara mutlak (mengabaikan simbol, perpuluhan, atau perantara)."""
     if pd.isna(val) or val is None:
         return ""
     s = str(val).strip()
-    if s.endswith('.0'):
-        s = s[:-2]
-    if 'e+' in s.lower() or 'e-' in s.lower():
+    if 'e' in s.lower():
         try:
-            s = f"{float(s):.0f}"
+            s = f"{float(val):.0f}"
         except Exception:
             pass
+    elif '.' in s:
+        s = s.split('.')[0]
     return re.sub(r'\D', '', s)
 
 def dapatkan_tafsiran_tp(tp_val):
@@ -109,23 +109,9 @@ def dapatkan_tafsiran_tp(tp_val):
 def bersihkan_df_murid(df):
     if df is None or df.empty:
         return df
+    # Buang baris yang benar-benar kosong sahaja
     df = df.dropna(how='all').copy()
-    col_ref = df.columns[0]
-    for c in df.columns:
-        c_lower = str(c).lower().strip()
-        if any(k in c_lower for k in ['nama', 'ic', 'kp', 'kad pengenalan', 'nokp', 'mykad']):
-            col_ref = c
-            break
-
-    kata_kunci_header = ['nama murid', 'kad pengenalan', 'no. kp', 'no kp', 'nokp', 'mykad', 'bil.', 'jumlah', 'purata']
-    def is_student_row(val):
-        s = str(val).lower().strip()
-        if not s or s in ['nan', 'none', '']:
-            return False
-        if any(s == k for k in kata_kunci_header):
-            return False
-        return True
-    return df[df[col_ref].apply(is_student_row)].copy()
+    return df
 
 def read_pdf_to_dataframe(pdf_file):
     all_rows = []
@@ -164,7 +150,8 @@ def load_all_saved_data():
     dfs = []
     for f in files:
         try:
-            temp_df = pd.read_csv(f, dtype=str)
+            # Paksa pembacaan CSV sebagai String sepenuhnya
+            temp_df = pd.read_csv(f, dtype=str, keep_default_na=False)
             temp_df = bersihkan_df_murid(temp_df)
             dfs.append(temp_df)
         except Exception:
@@ -222,7 +209,7 @@ with tab_pengurusan:
                         if uploaded_file.name.endswith('.pdf'):
                             df_upload = read_pdf_to_dataframe(uploaded_file)
                         else:
-                            df_upload = pd.read_csv(uploaded_file, dtype=str)
+                            df_upload = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
                             df_upload = bersihkan_df_murid(df_upload)
                             
                         if df_upload is not None and not df_upload.empty:
@@ -250,7 +237,7 @@ with tab_pengurusan:
                 senarai_info = []
                 for filepath in fail_tersimpan:
                     fname = os.path.basename(filepath).replace(".csv", "").replace("_", " ")
-                    temp_df = pd.read_csv(filepath, dtype=str)
+                    temp_df = pd.read_csv(filepath, dtype=str, keep_default_na=False)
                     temp_df = bersihkan_df_murid(temp_df)
                     senarai_info.append({
                         "Fail / Kelas": fname,
@@ -271,13 +258,13 @@ with tab_pengurusan:
                         st.rerun()
 
 # ---------------------------------------------------------
-# TAB 1: SEMAKAN & ANALISIS PBD INDIVIDU (MANUAL INPUT ONLY)
+# TAB 1: SEMAKAN & ANALISIS PBD INDIVIDU
 # ---------------------------------------------------------
 with tab_utama:
     df_all = load_all_saved_data()
     
     if df_all is None or df_all.empty:
-        st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu.")
+        st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
         # Kesan Lajur Nama & IC
         lajur_ic, lajur_nama = None, None
@@ -295,57 +282,53 @@ with tab_utama:
             if not is_metadata and col not in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
                 senarai_subjek.append(col)
 
-        # Satu Kotak Input Carian Utama
+        # PENAMBAHAN: MENU INTIP DATA UNTUK PENGESAHAN REKOD
+        with st.expander("🛠️ Semak & Intip Kandungan Data Tersimpan dalam Sistem"):
+            st.write(f"**Jumlah Rekod Ditemui:** {len(df_all)} baris")
+            st.dataframe(df_all.head(20), use_container_width=True)
+
         search_input = st.text_input("Masukkan No. Kad Pengenalan atau Nama Murid:", "")
 
         if search_input.strip():
-            clean_query_digit = clean_ic(search_input)
-            raw_query_text = search_input.strip().lower()
+            query_digits = clean_digits(search_input)
+            query_text = search_input.strip().lower()
             
             matched_row = None
             
-            # Algoritma Carian Pintar
+            # ALGORITMA PEMADANAN MULTI-APLIKASI
             for _, row in df_all.iterrows():
-                # 1. Semak lajur IC spesifik
-                if lajur_ic and lajur_ic in row:
-                    cell_ic_clean = clean_ic(row[lajur_ic])
-                    if clean_query_digit and clean_query_digit in cell_ic_clean and len(clean_query_digit) >= 4:
-                        matched_row = row
-                        break
+                # Kumpul semua nilai digit dalam baris
+                row_digits_list = [clean_digits(val) for val in row.values if pd.notna(val) and clean_digits(val)]
+                row_text_combined = " ".join([str(val).lower().strip() for val in row.values if pd.notna(val)])
                 
-                # 2. Semak lajur Nama spesifik
-                if lajur_nama and lajur_nama in row:
-                    cell_nama_raw = str(row[lajur_nama]).lower().strip()
-                    if raw_query_text in cell_nama_raw:
+                # Pemadanan 1: Digit IC tepat (sekurang-kurangnya 4 angka)
+                if query_digits and len(query_digits) >= 4:
+                    if any(query_digits in d for d in row_digits_list):
                         matched_row = row
                         break
-
-                # 3. Fallback: Semak keseluruhan sel dalam baris ini
-                row_all_str = " ".join([str(v) for v in row.values if pd.notna(v)]).lower()
-                row_all_digits = " ".join([clean_ic(v) for v in row.values if pd.notna(v)])
-
-                if (clean_query_digit and clean_query_digit in row_all_digits and len(clean_query_digit) >= 4) or \
-                   (raw_query_text and raw_query_text in row_all_str):
+                        
+                # Pemadanan 2: Teks nama
+                if query_text and query_text in row_text_combined:
                     matched_row = row
                     break
 
             if matched_row is not None:
-                # Ekstrak Nama
+                # Ekstrak Nama Murid
                 nama_murid = matched_row[lajur_nama] if lajur_nama and lajur_nama in matched_row else None
-                if not nama_murid or str(nama_murid).strip().lower() in ['nan', 'none', '']:
+                if not nama_murid or str(nama_murid).strip().lower() in ['', 'nan', 'none']:
                     for val in matched_row.values:
                         s_val = str(val).strip()
-                        if len(s_val) > 3 and not s_val.isdigit() and not clean_ic(s_val):
+                        if len(s_val) > 3 and not s_val.isdigit() and not clean_digits(s_val):
                             nama_murid = s_val
                             break
                 if not nama_murid:
                     nama_murid = "Murid"
 
-                # Ekstrak IC
-                ic_display = clean_ic(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else ""
+                # Ekstrak No IC
+                ic_display = clean_digits(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else ""
                 if not ic_display or len(ic_display) < 6:
                     for val in matched_row.values:
-                        c_v = clean_ic(val)
+                        c_v = clean_digits(val)
                         if len(c_v) >= 8:
                             ic_display = c_v
                             break
@@ -428,4 +411,4 @@ with tab_utama:
                         st.success("✅ **Prestasi Baik:** Semua subjek telah melepasi Tahap Penguasaan Minimum (TP 3 dan ke atas).")
 
             else:
-                st.error(f"No. Kad Pengenalan atau Nama **'{search_input}'** tidak dijumpai. Sila pastikan data kelas telah dimuat naik di tab Pengurusan Data.")
+                st.error(f"Rekod murid tidak dijumpai. Sila semak menu expander '🛠️ Semak & Intip Kandungan Data Tersimpan' di atas untuk memastikan data telah dimasukkan.")
