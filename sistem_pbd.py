@@ -178,17 +178,17 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# FUNGSI PEMBANTU & PEMBERSIHAN DATA
+# FUNGSI PEMBANTU & PEMBERSIHAN DATA ULTRAROBUST
 # =========================================================
 KATA_KUNCI_BUKAN_SUBJEK = [
     'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp', 'nokp',
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
 ]
 
-def clean_to_digits(val):
-    """Pembersihan jitu untuk ekstrak digit sahaja daripada pelbagai format data."""
+def extract_ic_candidates(val):
+    """Mengekstrak kepingan 12 digit No. KP daripada pelbagai format data."""
     if pd.isna(val) or val is None:
-        return ""
+        return []
     s = str(val).strip()
     if 'e+' in s.lower() or 'e-' in s.lower():
         try:
@@ -197,7 +197,16 @@ def clean_to_digits(val):
             pass
     elif s.endswith('.0'):
         s = s[:-2]
-    return re.sub(r'\D', '', s)
+
+    # 1. Cari blok 12 digit tepat (tanpa mengira tanda sempang/ruang)
+    s_clean = re.sub(r'[-\s]', '', s)
+    exact_12 = re.findall(r'\d{12}', s_clean)
+    if exact_12:
+        return exact_12
+    
+    # 2. Fallback: Ambil semua digit
+    only_digits = re.sub(r'\D', '', s)
+    return [only_digits] if only_digits else []
 
 def dapatkan_tafsiran_tp(tp_val):
     tafsiran = {
@@ -367,47 +376,68 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
-        search_ic_input = st.text_input(
-            "🔎 Masukkan No. Kad Pengenalan Murid (Lengkap):",
+        search_input = st.text_input(
+            "🔎 Masukkan No. Kad Pengenalan ATAU Nama Murid:",
             value="",
-            placeholder="Contoh: 110616020075 atau 110616-02-0075"
-        )
+            placeholder="Contoh No. KP: 111013020847 ATAU Nama: MUHAMMAD ADAM"
+        ).strip()
 
         matched_row = None
-        target_ic = clean_to_digits(search_ic_input)
+        target_digits = re.sub(r'\D', '', search_input)
+        target_text_lower = search_input.lower()
 
-        # LOGIK CARIAN CELL-LEVEL PERSIS
-        if target_ic:
+        # LOGIK CARIAN DUO (NO. KP & NAMA MURID)
+        if search_input:
             for idx, row in df_all.iterrows():
+                row_matched = False
                 for col_name, val in row.items():
-                    d = clean_to_digits(val)
-                    if not d:
-                        continue
-                    # Semakan jitu No. KP (Tepat ATAU Kes kehilangan '0' di hadapan)
-                    if d == target_ic or (len(target_ic) == 12 and len(d) == 11 and target_ic == '0' + d) or (len(target_ic) == 11 and len(d) == 12 and d == '0' + target_ic):
-                        matched_row = row
+                    val_str = str(val).strip()
+                    val_lower = val_str.lower()
+                    
+                    # 1. Semakan Berdasarkan No. KP
+                    if target_digits:
+                        candidates = extract_ic_candidates(val_str)
+                        for ic in candidates:
+                            if ic == target_digits or (len(target_digits) >= 10 and target_digits in ic):
+                                matched_row = row
+                                row_matched = True
+                                break
+                    if row_matched:
                         break
+
+                    # 2. Semakan Berdasarkan Nama Murid
+                    if len(target_text_lower) >= 3 and not search_input.isdigit():
+                        if target_text_lower in val_lower and not any(k in str(col_name).lower() for k in ['tingkatan_system', 'kelas_system']):
+                            matched_row = row
+                            row_matched = True
+                            break
+                            
                 if matched_row is not None:
                     break
 
-        if search_ic_input.strip() and matched_row is None:
-            st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai dalam sistem SMK Dato' Syed Omar.")
+        if search_input and matched_row is None:
+            st.error(f"❌ Rekod murid `{search_input}` tidak dijumpai dalam sistem SMK Dato' Syed Omar.")
             
             with st.expander("🔍 Semak Senarai Nama & IC yang Wujud Dalam Sistem"):
-                st.write("Sila pastikan No. IC yang anda cari wujud dalam mana-mana fail tersimpan:")
+                st.write("Senarai di bawah memaparkan semua rekod murid yang telah berjaya dimuat naik ke dalam sistem:")
                 preview_list = []
                 for _, r in df_all.iterrows():
-                    # Cari teks paling sesuai sebagai Nama
                     nama_tmp = ""
                     for c_name, c_val in r.items():
                         if any(k in str(c_name).lower() for k in ['nama', 'student', 'murid', 'name']):
-                            nama_tmp = str(c_val)
+                            nama_tmp = str(c_val).strip()
                             break
                     if not nama_tmp:
-                        nama_tmp = next((str(v) for v in r.values if len(str(v)) > 3 and not str(v).isdigit()), "Aplikasi PBD")
+                        nama_tmp = next((str(v) for v in r.values if len(str(v)) > 3 and not str(v).isdigit()), "Murid PBD")
                     
-                    # Cari No. KP dalam baris
-                    ic_tmp = next((str(v) for v in r.values if len(clean_to_digits(v)) in [11, 12]), "-")
+                    # Cari No. KP dalam mana-mana sel
+                    ic_tmp = "-"
+                    for cell_val in r.values:
+                        c_list = extract_ic_candidates(cell_val)
+                        if c_list and len(c_list[0]) in [11, 12]:
+                            ic_tmp = c_list[0]
+                            break
+                            
                     preview_list.append({"Nama Murid": nama_tmp, "No. IC Dikesan": ic_tmp, "Kelas": r.get('Kelas_System', '-')})
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True)
 
@@ -421,7 +451,6 @@ with tab_utama:
                         nama_murid = s_val
                         break
             if not nama_murid:
-                # Cari string terpanjang yang bukan nombor
                 best_text = ""
                 for col, val in matched_row.items():
                     if col in ['Tingkatan_System', 'Kelas_System']:
@@ -431,7 +460,16 @@ with tab_utama:
                         best_text = s_val
                 nama_murid = best_text if best_text else "Murid"
 
-            ic_display = search_ic_input.strip()
+            # Ekstrak IC untuk Paparan Profil
+            ic_display = "-"
+            for cell_val in matched_row.values:
+                c_list = extract_ic_candidates(cell_val)
+                if c_list and len(c_list[0]) in [11, 12]:
+                    ic_display = c_list[0]
+                    break
+            if ic_display == "-" and target_digits:
+                ic_display = target_digits
+
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
