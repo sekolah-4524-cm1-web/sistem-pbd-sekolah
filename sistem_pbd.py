@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
-import pdfplumber
 import os
 import glob
 import re
+import time
 
 # KONFIGURASI HALAMAN
 st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide", page_icon="🎓")
@@ -15,7 +15,7 @@ ADMIN_PASSWORD = "admin123"
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
 
-# CSS UNTUK UI 
+# CSS UNTUK UI (Stabil dan Kemas)
 st.markdown("""
     <style>
     .stApp { background-color: #f8fafc; }
@@ -29,45 +29,38 @@ st.markdown("<h1 class='school-title'>SMK DATO' SYED OMAR</h1>", unsafe_allow_ht
 st.markdown("<p class='system-title'>✨ Sistem Pelaporan & Pengurusan Data Pentaksiran Bilik Darjah (PBD)</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-def parse_idme_file(uploaded_file):
+def parse_csv_file(uploaded_file):
     records = []
-    if uploaded_file.name.lower().endswith('.csv'):
+    try:
+        # Membaca fail CSV
         df = pd.read_csv(uploaded_file, dtype=str)
+        
+        # Mencari kolum yang mengandungi perkataan NAMA atau KP/IC secara automatik
         name_col = next((c for c in df.columns if 'NAMA' in str(c).upper()), None)
-        ic_col = next((c for c in df.columns if 'KP' in str(c).upper() or 'IC' in str(c).upper()), None)
+        ic_col = next((c for c in df.columns if 'KP' in str(c).upper() or 'IC' in str(c).upper() or 'KAD' in str(c).upper()), None)
         
         if name_col and ic_col:
             for _, row in df.iterrows():
+                if pd.isna(row[ic_col]) or pd.isna(row[name_col]): continue
                 ic = re.sub(r'\D', '', str(row[ic_col]))
                 nama = str(row[name_col]).upper().strip()
                 if len(ic) >= 12: records.append({'NO_KP': ic, 'NAMA': nama})
         else:
+            # Fallback jika nama kolum di CSV pelik/tidak dijumpai
             for _, row in df.iterrows():
                 row_str = " ".join([str(v) for v in row.values if pd.notna(v)])
                 match = re.search(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', row_str)
                 if match:
                     ic = re.sub(r'\D', '', match.group(0))
                     clean = re.sub(r'[^a-zA-Z\s@\']', ' ', row_str.replace(match.group(0), ''))
-                    words = [w for w in clean.split() if len(w) > 2 and w.upper() not in ['LELAKI','PEREMPUAN','ISLAM','MELAYU','KPM']]
+                    words = [w for w in clean.split() if len(w) > 2 and w.upper() not in ['LELAKI','PEREMPUAN','ISLAM','MELAYU','KPM', 'TINGKATAN', 'TAHUN']]
                     nama = " ".join(words[:6]).strip().upper()
-                    records.append({'NO_KP': ic, 'NAMA': nama if nama else "SILA KEMASKINI NAMA"})
-                    
-    elif uploaded_file.name.lower().endswith('.pdf'):
-        with pdfplumber.open(uploaded_file) as pdf:
-            for page in pdf.pages:
-                lines = (page.extract_text() or "").split('\n')
-                for i, line in enumerate(lines):
-                    match = re.search(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', line)
-                    if match:
-                        ic = re.sub(r'\D', '', match.group(0))
-                        # Membaca baris sebelumnya untuk mencari klu nama
-                        context = (lines[i-1] + " " + line) if i > 0 else line
-                        clean = re.sub(r'[^a-zA-Z\s@\']', ' ', context.replace(match.group(0), ''))
-                        words = [w for w in clean.split() if len(w) > 2 and w.upper() not in ['LELAKI','PEREMPUAN','ISLAM','MELAYU','TINGKATAN','TAHUN']]
-                        nama = " ".join(words[:7]).strip().upper()
-                        records.append({'NO_KP': ic, 'NAMA': nama if nama else "SILA KEMASKINI NAMA"})
-                        
-    return pd.DataFrame(records).drop_duplicates(subset=['NO_KP']) if records else None
+                    if not nama: nama = "SILA KEMASKINI NAMA"
+                    records.append({'NO_KP': ic, 'NAMA': nama})
+        
+        return pd.DataFrame(records).drop_duplicates(subset=['NO_KP']) if records else None
+    except Exception:
+        return None
 
 def load_all_saved_data():
     files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
@@ -76,6 +69,7 @@ def load_all_saved_data():
 
 tab_utama, tab_pengurusan = st.tabs(["🔍 Semakan & Analisis PBD", "🔒 Pengurusan Data (Admin)"])
 
+# TAB 2: ADMIN
 with tab_pengurusan:
     if not st.session_state['is_admin']:
         st.subheader("🔐 Log Masuk Pentadbir (Admin)")
@@ -93,15 +87,17 @@ with tab_pengurusan:
         
         col_up1, col_up2 = st.columns([1, 1])
         with col_up1:
-            st.markdown("**1. Muat Naik & Semak Fail idMe**")
+            st.markdown("**1. Muat Naik Fail CSV Data Kelas**")
             pilih_tingkatan = st.selectbox("Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
             nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1):", "")
-            uploaded_file = st.file_uploader("Pilih Fail PDF / CSV idMe:", type=["pdf", "csv"])
+            
+            # HANYA MEMBENARKAN CSV SAHAJA DI SINI
+            uploaded_file = st.file_uploader("Pilih Fail CSV idMe / Excel:", type=["csv"])
             
             if uploaded_file:
-                parsed_df = parse_idme_file(uploaded_file)
+                parsed_df = parse_csv_file(uploaded_file)
                 if parsed_df is not None and not parsed_df.empty:
-                    st.warning("⚠️ **PENTING SEBELUM SIMPAN:** Pastikan nama murid di dalam jadual di bawah adalah betul. **Klik dua kali pada sel jadual untuk membetulkan nama jika perlu.**")
+                    st.info("💡 **SEMAKAN TERAKHIR:** Sila pastikan nama dan No. KP di bawah adalah tepat. Jika ada kesilapan, **klik dua kali pada petak jadual untuk membetulkannya** sebelum menekan butang Simpan.")
                     
                     edited_df = st.data_editor(parsed_df, use_container_width=True, hide_index=True)
                     
@@ -112,8 +108,8 @@ with tab_pengurusan:
                             edited_df['Kelas_System'] = nama_kelas.strip()
                             safe_fn = f"{pilih_tingkatan}_{nama_kelas.strip()}.csv".replace(" ", "_").replace("/", "_")
                             edited_df.to_csv(os.path.join(DATA_DIR, safe_fn), index=False)
-                            st.success("✅ Berjaya Disimpan!"); st.rerun()
-                else: st.error("❌ Gagal mengesan data No. KP dari fail.")
+                            st.success("✅ Berjaya Disimpan!"); time.sleep(1); st.rerun()
+                else: st.error("❌ Gagal membaca fail. Pastikan fail CSV anda mempunyai senarai nama dan No. KP yang jelas.")
         
         with col_up2:
             st.markdown("**2. Data Tersimpan**")
@@ -123,12 +119,13 @@ with tab_pengurusan:
                 for f in files: st.write(f"📄 {os.path.basename(f).replace('.csv', '')}")
                 if st.button("🔥 Padam Semua Data (Reset)"):
                     for f in files: os.remove(f)
-                    st.success("Semua data lama dibersihkan."); st.rerun()
+                    st.success("Semua data lama dibersihkan."); time.sleep(1); st.rerun()
 
+# TAB 1: SEMAKAN
 with tab_utama:
     df_all = load_all_saved_data()
     if df_all is None or df_all.empty:
-        st.warning("⚠️ **Tiada data tersimpan.** Sila ke Tab Admin untuk muat naik fail.")
+        st.warning("⚠️ **Tiada data tersimpan.** Sila ke Tab Admin untuk muat naik fail CSV.")
     else:
         search_input = st.text_input("🔎 Masukkan No. Kad Pengenalan ATAU Nama Murid:", placeholder="Contoh: 131005101143").strip()
         matched_row = None
