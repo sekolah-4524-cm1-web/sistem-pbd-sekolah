@@ -85,7 +85,7 @@ KATA_KUNCI_BUKAN_SUBJEK = [
 ]
 
 def clean_ic_number(val):
-    """Membuang .0, sengkang, dan huruf daripada string IC."""
+    """Membuang .0, sengkang, dan semua karakter bukan digit."""
     if pd.isna(val):
         return ""
     s = str(val).strip()
@@ -300,31 +300,27 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu.")
     else:
-        lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
-        
-        # 1. Mengesan lajur tajuk
+        # Pilihan semakan struktur data tersimpan untuk memudahkan pengawasan
+        with st.expander("🛠️ Semak & Intip Kandungan Data Tersimpan dalam Sistem"):
+            st.write(f"**Jumlah Rekod Keseluruhan:** {len(df_all)} murid")
+            st.write("**Senarai Lajur Wujud:**", list(df_all.columns))
+            st.dataframe(df_all.head(10), use_container_width=True)
+
+        # Pengesanan Lajur Utama
+        lajur_ic, lajur_nama = None, None
         for c in df_all.columns:
             c_lower = str(c).lower().strip()
             if any(k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad', 'nokp', 'no.kp', 'no_kp', 'id']):
                 if not lajur_ic: lajur_ic = c
             elif any(k in c_lower for k in ['nama', 'student', 'murid', 'name', 'pemohon']):
                 if not lajur_nama: lajur_nama = c
-            elif any(k in c_lower for k in ['tingkatan_system', 'kelas_system', 'tingkatan', 'kelas']):
-                if not lajur_tingkatan: lajur_tingkatan = c
 
-        # 2. Pengesanan automatik fallback jika tajuk IC tidak dikesan
-        if not lajur_ic:
-            for c in df_all.columns:
-                sample_vals = df_all[c].dropna().apply(clean_ic_number).tolist()[:10]
-                if any(len(v) == 12 for v in sample_vals):
-                    lajur_ic = c
-                    break
-
+        # Senarai lajur subjek
         senarai_subjek = []
         for col in df_all.columns:
             col_clean = str(col).lower().strip()
             is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
-            if not is_metadata and col not in [lajur_ic, lajur_nama, lajur_tingkatan, 'Tingkatan_System', 'Kelas_System']:
+            if not is_metadata and col not in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
                 senarai_subjek.append(col)
 
         search_input = st.text_input("Masukkan No. Kad Pengenalan atau Nama Murid:", "")
@@ -333,29 +329,46 @@ with tab_utama:
             clean_search_digit = clean_ic_number(search_input)
             raw_search_str = search_input.strip().lower()
             
-            murid = pd.DataFrame()
+            matched_row = None
             
-            # Carian 1: Menerusi No. Kad Pengenalan
-            if clean_search_digit and lajur_ic:
-                ic_cleaned_series = df_all[lajur_ic].apply(clean_ic_number)
-                murid = df_all[ic_cleaned_series == clean_search_digit]
+            # --- CARIAN UNIVERSAL (Menyemak SELURUH Lajur Dalam Data) ---
+            for _, row in df_all.iterrows():
+                row_str_all = " ".join([str(v) for v in row.values if pd.notna(v)]).lower()
+                row_digits_all = clean_ic_number(row_str_all)
                 
-                if murid.empty and len(clean_search_digit) >= 4:
-                    murid = df_all[ic_cleaned_series.str.contains(clean_search_digit, na=False)]
+                # Padanan Digit IC atau Padanan Teks Nama
+                if (clean_search_digit and len(clean_search_digit) >= 4 and clean_search_digit in row_digits_all) or \
+                   (raw_search_str and raw_search_str in row_str_all):
+                    matched_row = row
+                    break
             
-            # Carian 2: Menerusi Nama (Jika carian IC gagal atau pengguna menaip nama)
-            if murid.empty and lajur_nama and raw_search_str:
-                murid = df_all[df_all[lajur_nama].astype(str).str.lower().str.contains(raw_search_str, na=False)]
+            if matched_row is not None:
+                # Ekstrak Nama
+                nama_murid = matched_row[lajur_nama] if lajur_nama and lajur_nama in matched_row else None
+                if not nama_murid:
+                    for val in matched_row.values:
+                        if isinstance(val, str) and len(val) > 3 and not val.isdigit() and not clean_ic_number(val):
+                            nama_murid = val
+                            break
+                if not nama_murid:
+                    nama_murid = "Murid"
+
+                # Ekstrak IC
+                ic_display = clean_ic_number(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else None
+                if not ic_display:
+                    for val in matched_row.values:
+                        c_val = clean_ic_number(val)
+                        if len(c_val) == 12:
+                            ic_display = c_val
+                            break
+                if not ic_display:
+                    ic_display = search_input
+
+                tingkatan_murid = matched_row.get('Tingkatan_System', '-')
+                kelas_murid = matched_row.get('Kelas_System', '-')
                 
-            if not murid.empty:
-                murid_row = murid.iloc[0]
-                
-                nama_murid = murid_row[lajur_nama] if lajur_nama and lajur_nama in murid_row else "Murid"
-                tingkatan_murid = murid_row['Tingkatan_System'] if 'Tingkatan_System' in murid_row else "-"
-                kelas_murid = murid_row['Kelas_System'] if 'Kelas_System' in murid_row else "-"
-                ic_display = clean_ic_number(murid_row[lajur_ic]) if lajur_ic and lajur_ic in murid_row else search_input
-                
-                tp_series = murid_row[senarai_subjek]
+                # Proses Subjek & TP
+                tp_series = matched_row[senarai_subjek]
                 tp_data = tp_series.reset_index()
                 tp_data.columns = ['Subjek', 'TP_Raw']
                 
@@ -475,4 +488,4 @@ with tab_utama:
                         st.success("✅ **Prestasi Baik:** Semua subjek telah melepasi Tahap Penguasaan Minimum (TP 3 dan ke atas).")
 
             else:
-                st.error("Rekod murid tidak dijumpai. Sila semak semula No. IC atau cuba taip Nama Murid.")
+                st.error("Rekod murid tidak dijumpai. Sila semak menu expander '🛠️ Semak & Intip Kandungan Data Tersimpan' di atas untuk memastikan data telah dimasukkan.")
