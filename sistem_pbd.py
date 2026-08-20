@@ -81,8 +81,8 @@ KATA_KUNCI_BUKAN_SUBJEK = [
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
 ]
 
-def extract_digits(val):
-    """Mengekstrak digit angka sahaja daripada teks/notasi float."""
+def clean_ic_digits(val):
+    """Mengekstrak digit angka sahaja daripada sebarang bentuk input/rujukan IC."""
     if pd.isna(val) or val is None:
         return ""
     s = str(val).strip()
@@ -91,6 +91,8 @@ def extract_digits(val):
             s = f"{float(s):.0f}"
         except Exception:
             pass
+    elif '.' in s:
+        s = s.split('.')[0]
     return re.sub(r'\D', '', s)
 
 def dapatkan_tafsiran_tp(tp_val):
@@ -259,7 +261,7 @@ with tab_utama:
     df_all = load_all_saved_data()
     
     if df_all is None or df_all.empty:
-        st.warning("⚠️ **Tiada data tersimpan.** Sila masuk ke Tab 'Pengurusan Data (Admin Only)' untuk muat naik fail PBD terlebih dahulu.")
+        st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
         # Kesan Lajur Nama & IC
         lajur_ic, lajur_nama = None, None
@@ -277,51 +279,54 @@ with tab_utama:
             if not is_metadata and col not in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
                 senarai_subjek.append(col)
 
-        # BINA LIST PILIHAN AUTOMATIK DARIPADA DATA SEBENAR
-        pilihan_murid_dict = {}
-        options_list = ["-- Sila Pilih atau Taip Nama / IC Murid di Sini --"]
-
-        for idx, row in df_all.iterrows():
-            nama = str(row[lajur_nama]).strip() if lajur_nama and lajur_nama in row else f"Murid_{idx+1}"
-            ic = extract_digits(row[lajur_ic]) if lajur_ic and lajur_ic in row else ""
-            if not ic:
-                for v in row.values:
-                    d = extract_digits(v)
-                    if len(d) >= 8:
-                        ic = d
-                        break
-            
-            label = f"{nama} ({ic})" if ic else nama
-            pilihan_murid_dict[label] = row
-            options_list.append(label)
-
-        # PETAK CARIAN PILIHAN (DENGAN FUNGSI TAIP CARI TERBINA)
-        st.markdown("🔍 **Pilih atau Taip No. KP / Nama Murid di Bawah:**")
-        pilihan_terpilih = st.selectbox(
-            "Cari Murid Mengikut Nama atau No. KP:",
-            options=options_list,
-            index=0
+        # PETAK INPUT TAIP IC SAHAJA
+        search_ic_input = st.text_input(
+            "Masukkan No. Kad Pengenalan Murid (Lengkap):",
+            value="",
+            placeholder="Contoh: 111013020847 atau 111013-02-0847"
         )
 
         matched_row = None
-        if pilihan_terpilih != "-- Sila Pilih atau Taip Nama / IC Murid di Sini --":
-            matched_row = pilihan_murid_dict[pilihan_terpilih]
+        user_ic_digits = clean_ic_digits(search_ic_input)
 
-        # EXPANDER DIAGNOSTIK DATA
-        with st.expander("🛠️ Semak & Intip Kandungan Data Tersimpan dalam Sistem"):
-            st.write(f"**Jumlah Murid Dikesan:** {len(df_all)} rekod")
-            st.dataframe(df_all, use_container_width=True)
+        if user_ic_digits:
+            # SEMAKAN PADANAN DIGIT TEPAT (EXACT MATCH)
+            for _, row in df_all.iterrows():
+                # 1. Semak lajur IC utama dahulu
+                row_ic_val = clean_ic_digits(row[lajur_ic]) if lajur_ic and lajur_ic in row else ""
+                
+                if user_ic_digits == row_ic_val:
+                    matched_row = row
+                    break
 
-        if matched_row is not None:
-            nama_murid = matched_row[lajur_nama] if lajur_nama and lajur_nama in matched_row else "Murid"
-            ic_display = extract_digits(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else ""
-            if not ic_display:
+                # 2. Jika tidak dijumpai pada lajur utama, semak semua nilai sel yang ada 12 digit
+                if not matched_row:
+                    for val in row.values:
+                        cell_digits = clean_ic_digits(val)
+                        if len(cell_digits) >= 8 and user_ic_digits == cell_digits:
+                            matched_row = row
+                            break
+
+        if search_ic_input.strip() and matched_row is None:
+            st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai. Sila pastikan No. IC ditaip dengan betul.")
+
+        elif matched_row is not None:
+            # Ekstrak Nama Murid
+            nama_murid = matched_row[lajur_nama] if lajur_nama and lajur_nama in matched_row else None
+            if not nama_murid or str(nama_murid).strip().lower() in ['', 'nan', 'none']:
                 for val in matched_row.values:
-                    c_v = extract_digits(val)
-                    if len(c_v) >= 8:
-                        ic_display = c_v
+                    s_val = str(val).strip()
+                    if len(s_val) > 3 and not s_val.isdigit() and not clean_ic_digits(s_val):
+                        nama_murid = s_val
                         break
-                        
+            if not nama_murid:
+                nama_murid = "Murid"
+
+            # Ekstrak No IC Penuh
+            ic_display = clean_ic_digits(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else ""
+            if not ic_display or len(ic_display) < 6:
+                ic_display = user_ic_digits
+
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
@@ -343,7 +348,7 @@ with tab_utama:
 <div class="profile-card">
     <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
     <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
-    <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b>{ic_display if ic_display else '-'}</b></p>
+    <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b>{ic_display}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
