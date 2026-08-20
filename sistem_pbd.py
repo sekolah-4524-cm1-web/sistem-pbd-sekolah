@@ -82,18 +82,19 @@ KATA_KUNCI_BUKAN_SUBJEK = [
 ]
 
 def clean_ic_digits(val):
-    """Mengekstrak digit angka sahaja daripada sebarang bentuk input/rujukan IC."""
+    """Mengekstrak digit angka sahaja daripada pelbagai format input/fail."""
     if pd.isna(val) or val is None:
         return ""
     s = str(val).strip()
-    if 'e' in s.lower():
+    if 'e+' in s.lower() or 'e-' in s.lower():
         try:
             s = f"{float(s):.0f}"
         except Exception:
             pass
-    elif '.' in s:
-        s = s.split('.')[0]
-    return re.sub(r'\D', '', s)
+    elif s.endswith('.0'):
+        s = s[:-2]
+    digits = re.sub(r'\D', '', s)
+    return digits
 
 def dapatkan_tafsiran_tp(tp_val):
     tafsiran = {
@@ -290,25 +291,48 @@ with tab_utama:
         user_ic_digits = clean_ic_digits(search_ic_input)
 
         if user_ic_digits:
-            # SEMAKAN PADANAN DIGIT TEPAT (EXACT MATCH)
+            # LOGIK CARIAN DIGIT PINTAR & LENGKAP
             for _, row in df_all.iterrows():
-                # 1. Semak lajur IC utama dahulu
-                row_ic_val = clean_ic_digits(row[lajur_ic]) if lajur_ic and lajur_ic in row else ""
+                row_all_digits = [clean_ic_digits(val) for val in row.values if clean_ic_digits(val)]
                 
-                if user_ic_digits == row_ic_val:
-                    matched_row = row
+                # 1. Padanan Tepat (Exact Match)
+                for d in row_all_digits:
+                    if d == user_ic_digits:
+                        matched_row = row
+                        break
+                    # Padanan jika Excel buang kosong di hadapan (11 digit vs 12 digit)
+                    if len(d) == 11 and user_ic_digits == '0' + d:
+                        matched_row = row
+                        break
+                    if len(user_ic_digits) == 11 and d == '0' + user_ic_digits:
+                        matched_row = row
+                        break
+
+                if matched_row is not None:
                     break
 
-                # 2. Jika tidak dijumpai pada lajur utama, semak semua nilai sel yang ada 12 digit
-                if not matched_row:
-                    for val in row.values:
-                        cell_digits = clean_ic_digits(val)
-                        if len(cell_digits) >= 8 and user_ic_digits == cell_digits:
-                            matched_row = row
-                            break
+                # 2. Padanan Substring (Sekiranya IC digabung dengan teks lain)
+                for d in row_all_digits:
+                    if len(user_ic_digits) >= 8 and (user_ic_digits in d or d in user_ic_digits):
+                        matched_row = row
+                        break
+                
+                if matched_row is not None:
+                    break
 
         if search_ic_input.strip() and matched_row is None:
-            st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai. Sila pastikan No. IC ditaip dengan betul.")
+            st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai dalam sistem.")
+            
+            # EXPANDER DIAGNOSTIK APABILA TIADA PADANAN
+            with st.expander("🔍 Semak Senarai Nama & No. IC yang Wujud Dalam Fail"):
+                st.write("Sila pastikan No. IC yang anda cari wujud di dalam senarai tersimpan di bawah:")
+                preview_list = []
+                for _, r in df_all.iterrows():
+                    n = r[lajur_nama] if lajur_nama and lajur_nama in r else "Nama Tidak Nyata"
+                    ic_raw = r[lajur_ic] if lajur_ic and lajur_ic in r else ""
+                    ic_clean = clean_ic_digits(ic_raw)
+                    preview_list.append({"Nama Murid": n, "No. IC Asal Fail": ic_raw, "Digit IC Dikesan": ic_clean, "Kelas": r.get('Kelas_System', '-')})
+                st.dataframe(pd.DataFrame(preview_list), use_container_width=True)
 
         elif matched_row is not None:
             # Ekstrak Nama Murid
