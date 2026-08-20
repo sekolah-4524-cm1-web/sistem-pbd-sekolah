@@ -7,12 +7,13 @@ import glob
 import re
 
 # 1. Konfigurasi Halaman & Folder Storage Setempat
-st.set_page_config(page_title="Sistem Pengurusan & Analisis PBD", layout="wide")
+st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide")
 
 DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = "admin123"
+LOGO_PATH = "logo.png"  # Letakkan fail logo.png dalam folder yang sama
 
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
@@ -70,7 +71,23 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 style='color: #1a73e8;'>Sistem Pelaporan & Pengurusan Data PBD</h1>", unsafe_allow_html=True)
+# =========================================================
+# BAHAGIAN TAJUK & LOGO SEKOLAH
+# =========================================================
+col_logo, col_title = st.columns([1, 6])
+
+with col_logo:
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, width=100)
+    else:
+        st.image("https://via.placeholder.com/100x100.png?text=LOGO", width=100)
+
+with col_title:
+    st.markdown("""
+        <h1 style='color: #1a73e8; margin-bottom: 0px; padding-top: 0px;'>SMK DATO' SYED OMAR</h1>
+        <h3 style='color: #5f6368; margin-top: 0px; font-weight: 400;'>Sistem Pelaporan & Pengurusan Data PBD</h3>
+    """, unsafe_allow_html=True)
+
 st.markdown("---")
 
 # =========================================================
@@ -300,7 +317,6 @@ with tab_utama:
                     if d == user_ic_digits:
                         matched_row = row
                         break
-                    # Padanan jika Excel buang kosong di hadapan (11 digit vs 12 digit)
                     if len(d) == 11 and user_ic_digits == '0' + d:
                         matched_row = row
                         break
@@ -311,7 +327,7 @@ with tab_utama:
                 if matched_row is not None:
                     break
 
-                # 2. Padanan Substring (Sekiranya IC digabung dengan teks lain)
+                # 2. Padanan Substring
                 for d in row_all_digits:
                     if len(user_ic_digits) >= 8 and (user_ic_digits in d or d in user_ic_digits):
                         matched_row = row
@@ -321,9 +337,8 @@ with tab_utama:
                     break
 
         if search_ic_input.strip() and matched_row is None:
-            st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai dalam sistem.")
+            st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai dalam sistem SMK Dato' Syed Omar.")
             
-            # EXPANDER DIAGNOSTIK APABILA TIADA PADANAN
             with st.expander("🔍 Semak Senarai Nama & No. IC yang Wujud Dalam Fail"):
                 st.write("Sila pastikan No. IC yang anda cari wujud di dalam senarai tersimpan di bawah:")
                 preview_list = []
@@ -370,7 +385,7 @@ with tab_utama:
 
             st.markdown(f"""
 <div class="profile-card">
-    <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
+    <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU — SMK DATO' SYED OMAR</span>
     <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
     <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b>{ic_display}</b></p>
 </div>
