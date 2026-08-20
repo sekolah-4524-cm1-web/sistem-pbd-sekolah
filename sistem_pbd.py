@@ -185,8 +185,8 @@ KATA_KUNCI_BUKAN_SUBJEK = [
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
 ]
 
-def clean_ic_digits(val):
-    """Mengekstrak digit angka sahaja daripada pelbagai format input/fail."""
+def clean_to_digits(val):
+    """Pembersihan jitu untuk ekstrak digit sahaja daripada pelbagai format data."""
     if pd.isna(val) or val is None:
         return ""
     s = str(val).strip()
@@ -197,8 +197,7 @@ def clean_ic_digits(val):
             pass
     elif s.endswith('.0'):
         s = s[:-2]
-    digits = re.sub(r'\D', '', s)
-    return digits
+    return re.sub(r'\D', '', s)
 
 def dapatkan_tafsiran_tp(tp_val):
     tafsiran = {
@@ -253,7 +252,7 @@ def load_all_saved_data():
     dfs = []
     for f in files:
         try:
-            temp_df = pd.read_csv(f, dtype=str, keep_default_na=False)
+            temp_df = pd.read_csv(f, dtype=str, keep_default_na=False, encoding='utf-8-sig')
             temp_df = bersihkan_df_murid(temp_df)
             dfs.append(temp_df)
         except Exception:
@@ -311,7 +310,7 @@ with tab_pengurusan:
                         if uploaded_file.name.endswith('.pdf'):
                             df_upload = read_pdf_to_dataframe(uploaded_file)
                         else:
-                            df_upload = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
+                            df_upload = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False, encoding='utf-8-sig')
                             df_upload = bersihkan_df_murid(df_upload)
                             
                         if df_upload is not None and not df_upload.empty:
@@ -322,7 +321,7 @@ with tab_pengurusan:
                             safe_filename = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
                             file_path = os.path.join(DATA_DIR, safe_filename)
                             
-                            df_upload.to_csv(file_path, index=False)
+                            df_upload.to_csv(file_path, index=False, encoding='utf-8-sig')
                             st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan ({len(df_upload)} murid)!")
                             st.rerun()
                         else:
@@ -339,7 +338,7 @@ with tab_pengurusan:
                 senarai_info = []
                 for filepath in fail_tersimpan:
                     fname = os.path.basename(filepath).replace(".csv", "").replace("_", " ")
-                    temp_df = pd.read_csv(filepath, dtype=str, keep_default_na=False)
+                    temp_df = pd.read_csv(filepath, dtype=str, keep_default_na=False, encoding='utf-8-sig')
                     temp_df = bersihkan_df_murid(temp_df)
                     senarai_info.append({
                         "Fail / Kelas": fname,
@@ -368,95 +367,81 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
-        # Kesan Lajur IC & Nama Dengan Tepat
-        lajur_ic, lajur_nama = None, None
-        for c in df_all.columns:
-            c_lower = str(c).lower().strip()
-            if any(k in c_lower for k in ['nokp', 'no.kp', 'no_kp', 'ic', 'kp', 'kad pengenalan', 'mykad', 'id']):
-                if not lajur_ic: lajur_ic = c
-            elif any(k in c_lower for k in ['nama', 'student', 'murid', 'name', 'pemohon']):
-                if not lajur_nama: lajur_nama = c
-
-        senarai_subjek = []
-        for col in df_all.columns:
-            col_clean = str(col).lower().strip()
-            is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
-            if not is_metadata and col not in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
-                senarai_subjek.append(col)
-
         search_ic_input = st.text_input(
             "🔎 Masukkan No. Kad Pengenalan Murid (Lengkap):",
             value="",
-            placeholder="Contoh: 111013020847 atau 111013-02-0847"
+            placeholder="Contoh: 110616020075 atau 110616-02-0075"
         )
 
         matched_row = None
-        user_ic_digits = clean_ic_digits(search_ic_input)
+        target_ic = clean_to_digits(search_ic_input)
 
-        if user_ic_digits:
-            # 1. PERINGKAT 1: Padanan Tepat Terus Pada Lajur IC Khas
-            if lajur_ic and lajur_ic in df_all.columns:
-                for _, row in df_all.iterrows():
-                    row_ic_digits = clean_ic_digits(row[lajur_ic])
-                    if row_ic_digits == user_ic_digits:
+        # LOGIK CARIAN CELL-LEVEL PERSIS
+        if target_ic:
+            for idx, row in df_all.iterrows():
+                for col_name, val in row.items():
+                    d = clean_to_digits(val)
+                    if not d:
+                        continue
+                    # Semakan jitu No. KP (Tepat ATAU Kes kehilangan '0' di hadapan)
+                    if d == target_ic or (len(target_ic) == 12 and len(d) == 11 and target_ic == '0' + d) or (len(target_ic) == 11 and len(d) == 12 and d == '0' + target_ic):
                         matched_row = row
                         break
-                    # Mengendalikan kes jika angka '0' di hadapan hilang semasa muat naik
-                    if len(row_ic_digits) == 11 and user_ic_digits == '0' + row_ic_digits:
-                        matched_row = row
-                        break
-                    if len(user_ic_digits) == 11 and row_ic_digits == '0' + user_ic_digits:
-                        matched_row = row
-                        break
-
-            # 2. PERINGKAT 2: Cadangan Sandaran jika lajur_ic tidak ditemui secara khusus (hanya semak nilai bertaraf IC 10-12 digit)
-            if matched_row is None:
-                for _, row in df_all.iterrows():
-                    for col_name, val in row.items():
-                        col_lower = str(col_name).lower()
-                        # Elakkan menyemak lajur nama, tingkatan, atau kelas
-                        if any(x in col_lower for x in ['nama', 'tingkatan', 'kelas', 'subjek', 'system']):
-                            continue
-                        d = clean_ic_digits(val)
-                        if len(d) in [10, 11, 12]:
-                            if d == user_ic_digits or (len(d) == 11 and user_ic_digits == '0' + d) or (len(user_ic_digits) == 11 and d == '0' + user_ic_digits):
-                                matched_row = row
-                                break
-                    if matched_row is not None:
-                        break
+                if matched_row is not None:
+                    break
 
         if search_ic_input.strip() and matched_row is None:
             st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai dalam sistem SMK Dato' Syed Omar.")
             
-            with st.expander("🔍 Semak Senarai Nama & No. IC yang Wujud Dalam Fail"):
-                st.write("Sila pastikan No. IC yang anda cari wujud di dalam senarai tersimpan di bawah:")
+            with st.expander("🔍 Semak Senarai Nama & IC yang Wujud Dalam Sistem"):
+                st.write("Sila pastikan No. IC yang anda cari wujud dalam mana-mana fail tersimpan:")
                 preview_list = []
                 for _, r in df_all.iterrows():
-                    n = r[lajur_nama] if lajur_nama and lajur_nama in r else "Nama Tidak Nyata"
-                    ic_raw = r[lajur_ic] if lajur_ic and lajur_ic in r else ""
-                    ic_clean = clean_ic_digits(ic_raw)
-                    preview_list.append({"Nama Murid": n, "No. IC Asal Fail": ic_raw, "Digit IC Dikesan": ic_clean, "Kelas": r.get('Kelas_System', '-')})
+                    # Cari teks paling sesuai sebagai Nama
+                    nama_tmp = ""
+                    for c_name, c_val in r.items():
+                        if any(k in str(c_name).lower() for k in ['nama', 'student', 'murid', 'name']):
+                            nama_tmp = str(c_val)
+                            break
+                    if not nama_tmp:
+                        nama_tmp = next((str(v) for v in r.values if len(str(v)) > 3 and not str(v).isdigit()), "Aplikasi PBD")
+                    
+                    # Cari No. KP dalam baris
+                    ic_tmp = next((str(v) for v in r.values if len(clean_to_digits(v)) in [11, 12]), "-")
+                    preview_list.append({"Nama Murid": nama_tmp, "No. IC Dikesan": ic_tmp, "Kelas": r.get('Kelas_System', '-')})
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True)
 
         elif matched_row is not None:
-            # Ekstrak Nama Murid
-            nama_murid = matched_row[lajur_nama] if lajur_nama and lajur_nama in matched_row else None
-            if not nama_murid or str(nama_murid).strip().lower() in ['', 'nan', 'none']:
-                for val in matched_row.values:
+            # Ekstrak Nama Murid secara Dinamik
+            nama_murid = ""
+            for col, val in matched_row.items():
+                if any(k in str(col).lower() for k in ['nama', 'student', 'murid', 'name']):
                     s_val = str(val).strip()
-                    if len(s_val) > 3 and not s_val.isdigit() and not clean_ic_digits(s_val):
+                    if s_val and s_val.lower() not in ['nan', 'none']:
                         nama_murid = s_val
                         break
             if not nama_murid:
-                nama_murid = "Murid"
+                # Cari string terpanjang yang bukan nombor
+                best_text = ""
+                for col, val in matched_row.items():
+                    if col in ['Tingkatan_System', 'Kelas_System']:
+                        continue
+                    s_val = str(val).strip()
+                    if len(s_val) > len(best_text) and not re.search(r'\d', s_val):
+                        best_text = s_val
+                nama_murid = best_text if best_text else "Murid"
 
-            # Ekstrak No IC Penuh
-            ic_display = clean_ic_digits(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else ""
-            if not ic_display or len(ic_display) < 6:
-                ic_display = user_ic_digits
-
+            ic_display = search_ic_input.strip()
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
+
+            # Tapis Subjek & TP
+            senarai_subjek = []
+            for col in df_all.columns:
+                col_clean = str(col).lower().strip()
+                is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
+                if not is_metadata and col not in ['Tingkatan_System', 'Kelas_System']:
+                    senarai_subjek.append(col)
 
             tp_series = matched_row[senarai_subjek]
             tp_data = tp_series.reset_index()
