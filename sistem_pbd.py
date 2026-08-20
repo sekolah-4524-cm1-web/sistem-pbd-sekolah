@@ -131,7 +131,7 @@ def load_all_saved_data():
         try:
             temp_df = pd.read_csv(f, dtype=str)
             dfs.append(temp_df)
-        except Exception as e:
+        except Exception:
             pass
     if dfs:
         return pd.concat(dfs, ignore_index=True)
@@ -169,14 +169,11 @@ with tab_pengurusan:
                         df_upload = pd.read_csv(uploaded_file, dtype=str)
                         
                     if df_upload is not None and not df_upload.empty:
-                        # Reformat header
                         df_upload.columns = [str(c).strip().replace('\n', ' ') for c in df_upload.columns]
                         
-                        # Tambah metadata tingkatan & kelas
                         df_upload['Tingkatan_System'] = pilih_tingkatan
                         df_upload['Kelas_System'] = nama_kelas.strip()
                         
-                        # Simpan ke folder setempat
                         safe_filename = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
                         file_path = os.path.join(DATA_DIR, safe_filename)
                         
@@ -206,6 +203,9 @@ with tab_pengurusan:
                 })
                 
             info_df = pd.DataFrame(senarai_info)
+            # Menetapkan indeks bermula daripada angka 1
+            info_df.index = range(1, len(info_df) + 1)
+            
             st.dataframe(info_df[["Fail / Kelas", "Jumlah Murid"]], use_container_width=True)
             
             st.markdown("---")
@@ -216,7 +216,7 @@ with tab_pengurusan:
                 path_to_delete = info_df[info_df["Fail / Kelas"] == pilih_padam]["Path"].values[0]
                 if os.path.exists(path_to_delete):
                     os.remove(path_to_delete)
-                    st.success(f" Data `{pilih_padam}` telah dipadam secara kekal.")
+                    st.success(f"Data `{pilih_padam}` telah dipadam secara kekal.")
                     st.rerun()
 
 # ---------------------------------------------------------
@@ -228,7 +228,6 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Sila pergi ke tab **'📁 Pengurusan Storage Data Kekal'** di atas untuk muat naik data mengikut kelas terlebih dahulu.")
     else:
-        # Mengesan Lajur Asas
         lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
         
         for c in df_all.columns:
