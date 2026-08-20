@@ -5,6 +5,7 @@ import pdfplumber
 import os
 import glob
 import re
+import base64
 
 # 1. Konfigurasi Halaman & Folder Storage Setempat
 st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide", page_icon="🎓")
@@ -19,26 +20,37 @@ if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
 
 # =========================================================
-# SUNTIKAN GAYA CSS PREMIUM & REKA BENTUK WARNA MENARIK
+# FUNGSI TUKAR IMEJ KEPADA BASE64 UNTUK HTML
+# =========================================================
+def get_base64_image(image_path):
+    """Menukar fail imej setempat kepada Base64 string untuk paparan HTML."""
+    if os.path.exists(image_path):
+        try:
+            with open(image_path, "rb") as img_file:
+                return base64.b64encode(img_file.read()).decode('utf-8')
+        except Exception:
+            return None
+    return None
+
+# =========================================================
+# SUNTIKAN GAYA CSS PREMIUM
 # =========================================================
 st.markdown("""
     <style>
-    /* Latar Belakang & Fon Utama */
     .stApp {
         background-color: #f8fafc;
     }
     
-    /* Banner Header Utama */
     .header-banner {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #1e3a8a 100%);
-        padding: 28px 32px;
+        padding: 24px 30px;
         border-radius: 20px;
-        box-shadow: 0 12px 28px -5px rgba(15, 23, 42, 0.25);
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25);
         border: 1px solid rgba(255, 255, 255, 0.15);
         margin-bottom: 28px;
         display: flex;
         align-items: center;
-        gap: 24px;
+        gap: 20px;
     }
     
     .school-title {
@@ -53,7 +65,7 @@ st.markdown("""
     }
     
     .system-title {
-        font-size: 18px;
+        font-size: 17px;
         color: #e2e8f0;
         font-weight: 500;
         margin-top: 6px;
@@ -61,7 +73,6 @@ st.markdown("""
         letter-spacing: 0.3px;
     }
 
-    /* Kad Profil Murid */
     .profile-card {
         background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
         padding: 24px;
@@ -82,7 +93,6 @@ st.markdown("""
         text-transform: uppercase;
     }
 
-    /* Styling Jadual PBD */
     .pbd-table {
         width: 100%;
         border-collapse: separate;
@@ -109,7 +119,6 @@ st.markdown("""
     }
     .pbd-table tr:hover { background-color: #f8fafc; }
 
-    /* Lencana (Badges) Tahap Penguasaan (TP) */
     .badge {
         padding: 6px 16px;
         border-radius: 20px;
@@ -127,7 +136,6 @@ st.markdown("""
     .badge-tp2 { background: linear-gradient(135deg, #ea580c, #f97316); }
     .badge-tp1 { background: linear-gradient(135deg, #dc2626, #ef4444); }
 
-    /* Customizing Streamlit Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
     }
@@ -149,17 +157,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# BAHAGIAN TAJUK & LOGO SEKOLAH (BANNER BERWARNA)
+# BANNER HEADER & LOGO SEKOLAH (BASE64 FIXED)
 # =========================================================
-logo_html = ""
-if os.path.exists(LOGO_PATH):
-    logo_html = f'<img src="data:image/png;base64,{st.image(LOGO_PATH)}" width="90" style="border-radius: 12px;">'
+logo_b64 = get_base64_image(LOGO_PATH)
+
+if logo_b64:
+    logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="85" style="border-radius: 10px; padding: 4px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 10px rgba(0,0,0,0.15);">'
 else:
     logo_html = '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 85px; height: 85px; display: flex; align-items: center; justify-content: center; font-size: 38px;">🏫</div>'
 
 st.markdown(f"""
 <div class="header-banner">
-    <div>{logo_html}</div>
+    <div style="flex-shrink: 0;">
+        {logo_html}
+    </div>
     <div>
         <h1 class="school-title">SMK DATO' SYED OMAR</h1>
         <p class="system-title">✨ Sistem Pelaporan & Pengurusan Data Pentaksiran Bilik Darjah (PBD)</p>
