@@ -2,9 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import pdfplumber
+import os
 
 # 1. Konfigurasi Halaman
 st.set_page_config(page_title="Sistem Analisis PBD Individu", layout="wide")
+
+# NAMA FAIL PENYIMPANAN KEKAL
+DATA_FILE = "pbd_data_tersimpan.csv"
 
 # --- SUNTIKAN GAYA CSS PREMIUM ---
 st.markdown("""
@@ -64,7 +68,7 @@ st.markdown("<h1 style='color: #1a73e8;'>Sistem Pelaporan Pencapaian Individu PB
 st.markdown("---")
 
 # =========================================================
-# FUNGSI PEMBANTU & PENAPISAN LAJUR
+# FUNGSI PEMBANTU
 # =========================================================
 KATA_KUNCI_BUKAN_SUBJEK = [
     'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp',
@@ -118,58 +122,82 @@ def read_pdf_to_dataframe(pdf_file):
     return df_pdf
 
 # =========================================================
-# MUAT NAIK FAIL & PROSES DATA
+# PENGURUSAN DATA KEKAL (LOAD / UPLOAD / DELETE)
 # =========================================================
 st.sidebar.header("📁 Pengurusan Data PBD")
-uploaded_file = st.sidebar.file_uploader("Muat naik fail PDF / CSV (idMe):", type=["pdf", "csv"])
 
 df = None
+
+# 1. Semak jika data telah wujud secara kekal
+if os.path.exists(DATA_FILE):
+    df = pd.read_csv(DATA_FILE, dtype=str)
+    st.sidebar.success("✅ **Data PBD Tersimpan Aktif**")
+    st.sidebar.info(f"📊 {len(df)} rekod murid dimuatkan dari simpanan kekal.")
+    
+    # Butang untuk memadam data kekal
+    if st.sidebar.button("🗑️ Padam Data Simpanan"):
+        os.remove(DATA_FILE)
+        st.sidebar.warning("Data tersimpan telah dipadam!")
+        st.rerun()
+
+# 2. Jika tiada data kekal, paparkan borang muat naik
+else:
+    uploaded_file = st.sidebar.file_uploader("Muat naik fail PDF / CSV (idMe):", type=["pdf", "csv"])
+    
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.pdf'):
+                df = read_pdf_to_dataframe(uploaded_file)
+            else:
+                df = pd.read_csv(uploaded_file, dtype=str)
+                
+            if df is not None and not df.empty:
+                # Simpan fail secara kekal ke sistem
+                df.to_csv(DATA_FILE, index=False)
+                st.sidebar.success("✅ Data berjaya disimpan secara kekal!")
+                st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Ralat membaca atau menyimpan fail: {e}")
+
+# =========================================================
+# PENGENALAN LAJUR & PEMPROSESAN SUBJEK
+# =========================================================
 senarai_subjek = []
 lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
 
-if uploaded_file is not None:
-    try:
-        if uploaded_file.name.endswith('.pdf'):
-            df = read_pdf_to_dataframe(uploaded_file)
-        else:
-            df = pd.read_csv(uploaded_file, dtype=str)
-            
-        if df is not None and not df.empty:
-            df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
-            
-            for c in df.columns:
-                c_lower = c.lower()
-                if any(k == c_lower or k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad']):
-                    if not lajur_ic: lajur_ic = c
-                elif any(k == c_lower or k in c_lower for k in ['nama', 'student', 'murid']):
-                    if not lajur_nama: lajur_nama = c
-                elif any(k == c_lower or k in c_lower for k in ['tingkatan', 'kelas', 'form']):
-                    if not lajur_tingkatan: lajur_tingkatan = c
+if df is not None and not df.empty:
+    df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
+    
+    for c in df.columns:
+        c_lower = c.lower()
+        if any(k == c_lower or k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad']):
+            if not lajur_ic: lajur_ic = c
+        elif any(k == c_lower or k in c_lower for k in ['nama', 'student', 'murid']):
+            if not lajur_nama: lajur_nama = c
+        elif any(k == c_lower or k in c_lower for k in ['tingkatan', 'kelas', 'form']):
+            if not lajur_tingkatan: lajur_tingkatan = c
 
-            st.sidebar.markdown("---")
-            st.sidebar.subheader("⚙️ Tetapan Lajur Sistem")
-            
-            if not lajur_ic:
-                lajur_ic = st.sidebar.selectbox("Pilih Lajur Kad Pengenalan:", df.columns)
-            if not lajur_nama:
-                lajur_nama = st.sidebar.selectbox("Pilih Lajur Nama Murid:", df.columns)
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("⚙️ Tetapan Lajur Sistem")
+    
+    if not lajur_ic:
+        lajur_ic = st.sidebar.selectbox("Pilih Lajur Kad Pengenalan:", df.columns)
+    if not lajur_nama:
+        lajur_nama = st.sidebar.selectbox("Pilih Lajur Nama Murid:", df.columns)
 
-            for col in df.columns:
-                col_clean = col.lower().strip()
-                is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
-                if not is_metadata and col not in [lajur_ic, lajur_nama, lajur_tingkatan]:
-                    senarai_subjek.append(col)
+    for col in df.columns:
+        col_clean = col.lower().strip()
+        is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
+        if not is_metadata and col not in [lajur_ic, lajur_nama, lajur_tingkatan]:
+            senarai_subjek.append(col)
 
-            st.sidebar.success(f"✅ {len(senarai_subjek)} Subjek Dikesan")
-            
-    except Exception as e:
-        st.sidebar.error(f"Ralat membaca fail: {e}")
+    st.sidebar.caption(f"📚 {len(senarai_subjek)} Subjek Dikesan.")
 
 # =========================================================
 # PAPARAN INDIVIDU & ANALISIS SUBJEK
 # =========================================================
 if df is None:
-    st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) di bahagian **Sidebar** untuk memulakan.")
+    st.info("💡 **Panduan:** Sila muat naik fail data PBD (.PDF / .CSV) di bahagian **Sidebar** untuk menyimpan data pertama kali.")
 else:
     search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-'):", "")
     
@@ -189,7 +217,6 @@ else:
             tp_data['TP'] = tp_data['TP'].astype(int)
             tp_data = tp_data[(tp_data['TP'] >= 1) & (tp_data['TP'] <= 6)]
             
-            # Penukaran kategori teks untuk Plotly
             tp_data['TP_Str'] = "TP " + tp_data['TP'].astype(str)
             
             total_subjek = len(tp_data)
@@ -253,7 +280,6 @@ else:
             with col_jadual:
                 st.subheader("📋 Senarai Pencapaian Setiap Subjek")
                 
-                # Pembinaan rentetan HTML bersih tanpa inden ruang berlebihan
                 rows_html = ""
                 for _, row in tp_data.iterrows():
                     subjek_name = row['Subjek']
