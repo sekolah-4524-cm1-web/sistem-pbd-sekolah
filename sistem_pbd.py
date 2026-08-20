@@ -15,7 +15,7 @@ ADMIN_PASSWORD = "admin123"
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
 
-# CSS UNTUK UI (Stabil dan Kemas)
+# CSS UNTUK UI 
 st.markdown("""
     <style>
     .stApp { background-color: #f8fafc; }
@@ -32,34 +32,39 @@ st.markdown("---")
 def parse_csv_file(uploaded_file):
     records = []
     try:
-        # Membaca fail CSV
-        df = pd.read_csv(uploaded_file, dtype=str)
+        # Baca tanpa header (header=None) supaya tidak terjejas jika ada tajuk/sampah di baris atas CSV
+        df = pd.read_csv(uploaded_file, header=None, dtype=str)
         
-        # Mencari kolum yang mengandungi perkataan NAMA atau KP/IC secara automatik
-        name_col = next((c for c in df.columns if 'NAMA' in str(c).upper()), None)
-        ic_col = next((c for c in df.columns if 'KP' in str(c).upper() or 'IC' in str(c).upper() or 'KAD' in str(c).upper()), None)
-        
-        if name_col and ic_col:
-            for _, row in df.iterrows():
-                if pd.isna(row[ic_col]) or pd.isna(row[name_col]): continue
-                ic = re.sub(r'\D', '', str(row[ic_col]))
-                nama = str(row[name_col]).upper().strip()
-                if len(ic) >= 12: records.append({'NO_KP': ic, 'NAMA': nama})
-        else:
-            # Fallback jika nama kolum di CSV pelik/tidak dijumpai
-            for _, row in df.iterrows():
-                row_str = " ".join([str(v) for v in row.values if pd.notna(v)])
-                match = re.search(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', row_str)
-                if match:
-                    ic = re.sub(r'\D', '', match.group(0))
-                    clean = re.sub(r'[^a-zA-Z\s@\']', ' ', row_str.replace(match.group(0), ''))
-                    words = [w for w in clean.split() if len(w) > 2 and w.upper() not in ['LELAKI','PEREMPUAN','ISLAM','MELAYU','KPM', 'TINGKATAN', 'TAHUN']]
-                    nama = " ".join(words[:6]).strip().upper()
-                    if not nama: nama = "SILA KEMASKINI NAMA"
-                    records.append({'NO_KP': ic, 'NAMA': nama})
-        
+        for _, row in df.iterrows():
+            # Gabung semua sel dalam baris menjadi satu ayat
+            row_text = " ".join([str(cell) for cell in row.values if pd.notna(cell) and str(cell).strip() != ''])
+            
+            # Cari corak IC (12 digit berturut atau bersengkang)
+            match = re.search(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', row_text)
+            
+            if match:
+                ic = re.sub(r'\D', '', match.group(0))
+                
+                # Buang IC dari teks untuk mencari nama
+                text_without_ic = row_text.replace(match.group(0), '')
+                
+                # Bersihkan nama dari simbol dan nombor
+                clean_text = re.sub(r'[^a-zA-Z\s@/\'\-]', ' ', text_without_ic)
+                words = [w.strip() for w in clean_text.split() if len(w.strip()) > 1]
+                
+                # Senarai perkataan yang patut diabaikan
+                ignored = ['BIL', 'LELAKI', 'PEREMPUAN', 'MELAYU', 'CINA', 'INDIA', 'ISLAM', 'KPM', 'PBD', 'TINGKATAN', 'TAHUN', 'MURID']
+                name_words = [w for w in words if w.upper() not in ignored]
+                
+                nama = " ".join(name_words[:8]).strip().upper()
+                if not nama: 
+                    nama = "SILA KEMASKINI NAMA"
+                    
+                records.append({'NO_KP': ic, 'NAMA': nama})
+                
         return pd.DataFrame(records).drop_duplicates(subset=['NO_KP']) if records else None
-    except Exception:
+    except Exception as e:
+        st.error(f"Ralat sistem ketika membaca CSV: {str(e)}")
         return None
 
 def load_all_saved_data():
@@ -91,13 +96,12 @@ with tab_pengurusan:
             pilih_tingkatan = st.selectbox("Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
             nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1):", "")
             
-            # HANYA MEMBENARKAN CSV SAHAJA DI SINI
             uploaded_file = st.file_uploader("Pilih Fail CSV idMe / Excel:", type=["csv"])
             
             if uploaded_file:
                 parsed_df = parse_csv_file(uploaded_file)
                 if parsed_df is not None and not parsed_df.empty:
-                    st.info("💡 **SEMAKAN TERAKHIR:** Sila pastikan nama dan No. KP di bawah adalah tepat. Jika ada kesilapan, **klik dua kali pada petak jadual untuk membetulkannya** sebelum menekan butang Simpan.")
+                    st.info("💡 **SEMAKAN TERAKHIR:** Jika nama tidak tepat, **klik dua kali pada petak jadual untuk membetulkannya** sebelum menekan butang Simpan.")
                     
                     edited_df = st.data_editor(parsed_df, use_container_width=True, hide_index=True)
                     
