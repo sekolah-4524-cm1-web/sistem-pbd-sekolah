@@ -23,7 +23,6 @@ if 'is_admin' not in st.session_state:
 # FUNGSI TUKAR IMEJ KEPADA BASE64 UNTUK HTML
 # =========================================================
 def get_base64_image(image_path):
-    """Menukar fail imej setempat kepada Base64 string untuk paparan HTML."""
     if os.path.exists(image_path):
         try:
             with open(image_path, "rb") as img_file:
@@ -157,7 +156,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# BANNER HEADER & LOGO SEKOLAH (BASE64 FIXED)
+# BANNER HEADER & LOGO SEKOLAH
 # =========================================================
 logo_b64 = get_base64_image(LOGO_PATH)
 
@@ -187,6 +186,7 @@ KATA_KUNCI_BUKAN_SUBJEK = [
 ]
 
 def clean_ic_digits(val):
+    """Mengekstrak digit angka sahaja daripada pelbagai format input/fail."""
     if pd.isna(val) or val is None:
         return ""
     s = str(val).strip()
@@ -368,10 +368,11 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
+        # Kesan Lajur IC & Nama Dengan Tepat
         lajur_ic, lajur_nama = None, None
         for c in df_all.columns:
             c_lower = str(c).lower().strip()
-            if any(k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad', 'nokp', 'no.kp', 'no_kp', 'id']):
+            if any(k in c_lower for k in ['nokp', 'no.kp', 'no_kp', 'ic', 'kp', 'kad pengenalan', 'mykad', 'id']):
                 if not lajur_ic: lajur_ic = c
             elif any(k in c_lower for k in ['nama', 'student', 'murid', 'name', 'pemohon']):
                 if not lajur_nama: lajur_nama = c
@@ -393,30 +394,36 @@ with tab_utama:
         user_ic_digits = clean_ic_digits(search_ic_input)
 
         if user_ic_digits:
-            for _, row in df_all.iterrows():
-                row_all_digits = [clean_ic_digits(val) for val in row.values if clean_ic_digits(val)]
-                
-                for d in row_all_digits:
-                    if d == user_ic_digits:
+            # 1. PERINGKAT 1: Padanan Tepat Terus Pada Lajur IC Khas
+            if lajur_ic and lajur_ic in df_all.columns:
+                for _, row in df_all.iterrows():
+                    row_ic_digits = clean_ic_digits(row[lajur_ic])
+                    if row_ic_digits == user_ic_digits:
                         matched_row = row
                         break
-                    if len(d) == 11 and user_ic_digits == '0' + d:
+                    # Mengendalikan kes jika angka '0' di hadapan hilang semasa muat naik
+                    if len(row_ic_digits) == 11 and user_ic_digits == '0' + row_ic_digits:
                         matched_row = row
                         break
-                    if len(user_ic_digits) == 11 and d == '0' + user_ic_digits:
+                    if len(user_ic_digits) == 11 and row_ic_digits == '0' + user_ic_digits:
                         matched_row = row
                         break
 
-                if matched_row is not None:
-                    break
-
-                for d in row_all_digits:
-                    if len(user_ic_digits) >= 8 and (user_ic_digits in d or d in user_ic_digits):
-                        matched_row = row
+            # 2. PERINGKAT 2: Cadangan Sandaran jika lajur_ic tidak ditemui secara khusus (hanya semak nilai bertaraf IC 10-12 digit)
+            if matched_row is None:
+                for _, row in df_all.iterrows():
+                    for col_name, val in row.items():
+                        col_lower = str(col_name).lower()
+                        # Elakkan menyemak lajur nama, tingkatan, atau kelas
+                        if any(x in col_lower for x in ['nama', 'tingkatan', 'kelas', 'subjek', 'system']):
+                            continue
+                        d = clean_ic_digits(val)
+                        if len(d) in [10, 11, 12]:
+                            if d == user_ic_digits or (len(d) == 11 and user_ic_digits == '0' + d) or (len(user_ic_digits) == 11 and d == '0' + user_ic_digits):
+                                matched_row = row
+                                break
+                    if matched_row is not None:
                         break
-                
-                if matched_row is not None:
-                    break
 
         if search_ic_input.strip() and matched_row is None:
             st.error(f"❌ Rekod murid dengan No. KP `{search_ic_input}` tidak dijumpai dalam sistem SMK Dato' Syed Omar.")
@@ -432,6 +439,7 @@ with tab_utama:
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True)
 
         elif matched_row is not None:
+            # Ekstrak Nama Murid
             nama_murid = matched_row[lajur_nama] if lajur_nama and lajur_nama in matched_row else None
             if not nama_murid or str(nama_murid).strip().lower() in ['', 'nan', 'none']:
                 for val in matched_row.values:
@@ -442,6 +450,7 @@ with tab_utama:
             if not nama_murid:
                 nama_murid = "Murid"
 
+            # Ekstrak No IC Penuh
             ic_display = clean_ic_digits(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else ""
             if not ic_display or len(ic_display) < 6:
                 ic_display = user_ic_digits
