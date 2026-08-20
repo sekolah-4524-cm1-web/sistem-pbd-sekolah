@@ -11,7 +11,7 @@ st.set_page_config(page_title="Sistem Pengurusan & Analisis PBD", layout="wide")
 DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# Tetapan Kata Laluan Admin
+# Tetapan Kata Laluan Admin (Boleh diubah di sini)
 ADMIN_PASSWORD = "admin123"
 
 # Inisialisasi Session State Akses Admin
@@ -76,10 +76,10 @@ st.markdown("<h1 style='color: #1a73e8;'>Sistem Pelaporan & Pengurusan Data PBD<
 st.markdown("---")
 
 # =========================================================
-# FUNGSI PEMBANTU & PEMBERSIHAN DATA
+# FUNGSI PEMBANTU & PENAPISAN LAJUR
 # =========================================================
 KATA_KUNCI_BUKAN_SUBJEK = [
-    'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp', 'nokp',
+    'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp',
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
 ]
 
@@ -93,37 +93,6 @@ def dapatkan_tafsiran_tp(tp_val):
         1: ("Perlu Bimbingan / Tahu Sahaja", "badge-tp1")
     }
     return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
-
-def bersihkan_df_murid(df):
-    """Menapis tajuk berulang dari PDF berbilang muka surat dan baris kosong/jumlah."""
-    if df is None or df.empty:
-        return df
-    
-    col_ref = None
-    for c in df.columns:
-        c_lower = str(c).lower().strip()
-        if any(k in c_lower for k in ['nama', 'ic', 'kp', 'kad pengenalan', 'nokp', 'mykad']):
-            col_ref = c
-            break
-            
-    if not col_ref:
-        col_ref = df.columns[0]
-        
-    kata_kunci_sampah = [
-        'nama', 'nama murid', 'kad pengenalan', 'no. kp', 'no kp', 'nokp', 'mykad',
-        'bil', 'bil.', 'no', 'no.', 'jumlah', 'purata', 'gred', 'analisis', 'tandatangan'
-    ]
-    
-    def is_valid_student_row(val):
-        s = str(val).lower().strip()
-        if not s or s in ['nan', 'none', '']:
-            return False
-        if any(s == k or s.startswith(k + ' ') or s.endswith(' ' + k) for k in kata_kunci_sampah):
-            return False
-        return True
-        
-    df_clean = df[df[col_ref].apply(is_valid_student_row)].copy()
-    return df_clean
 
 def read_pdf_to_dataframe(pdf_file):
     all_rows = []
@@ -145,7 +114,7 @@ def read_pdf_to_dataframe(pdf_file):
     header_idx = 0
     for idx, row in enumerate(normalized_rows[:15]):
         row_str = " ".join(row).lower()
-        if any(k in row_str for k in ['nama', 'kp', 'ic', 'kad pengenalan', 'mykad', 'nokp']):
+        if any(k in row_str for k in ['nama', 'kp', 'ic', 'kad pengenalan', 'mykad']):
             header_idx = idx
             break
             
@@ -158,7 +127,7 @@ def read_pdf_to_dataframe(pdf_file):
         header.append(col_name)
         
     df_pdf = pd.DataFrame(normalized_rows[header_idx+1:], columns=header)
-    return bersihkan_df_murid(df_pdf)
+    return df_pdf
 
 def load_all_saved_data():
     files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
@@ -168,7 +137,6 @@ def load_all_saved_data():
     for f in files:
         try:
             temp_df = pd.read_csv(f, dtype=str)
-            temp_df = bersihkan_df_murid(temp_df)
             dfs.append(temp_df)
         except Exception:
             pass
@@ -200,6 +168,7 @@ with tab_pengurusan:
                 else:
                     st.error("❌ Kata laluan salah. Sila cuba lagi.")
     else:
+        # PENTADBIR BERJAYA LOG MASUK
         c_title, c_logout = st.columns([4, 1])
         with c_title:
             st.subheader("📥 Muat Naik & Memadam Data PBD Kelas")
@@ -229,7 +198,6 @@ with tab_pengurusan:
                             df_upload = read_pdf_to_dataframe(uploaded_file)
                         else:
                             df_upload = pd.read_csv(uploaded_file, dtype=str)
-                            df_upload = bersihkan_df_murid(df_upload)
                             
                         if df_upload is not None and not df_upload.empty:
                             df_upload.columns = [str(c).strip().replace('\n', ' ') for c in df_upload.columns]
@@ -241,7 +209,7 @@ with tab_pengurusan:
                             file_path = os.path.join(DATA_DIR, safe_filename)
                             
                             df_upload.to_csv(file_path, index=False)
-                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan ({len(df_upload)} murid)!")
+                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan secara kekal!")
                             st.rerun()
                         else:
                             st.error("Gagal membaca kandungan fail. Sila semak format PDF/CSV.")
@@ -259,8 +227,6 @@ with tab_pengurusan:
                 for filepath in fail_tersimpan:
                     fname = os.path.basename(filepath).replace(".csv", "").replace("_", " ")
                     temp_df = pd.read_csv(filepath, dtype=str)
-                    temp_df = bersihkan_df_murid(temp_df)
-                    
                     senarai_info.append({
                         "Fail / Kelas": fname,
                         "Jumlah Murid": len(temp_df),
@@ -295,17 +261,17 @@ with tab_utama:
         lajur_ic, lajur_nama, lajur_tingkatan = None, None, None
         
         for c in df_all.columns:
-            c_lower = str(c).lower().strip()
-            if any(k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad', 'nokp', 'no.kp', 'no_kp', 'id']):
+            c_lower = c.lower()
+            if any(k == c_lower or k in c_lower for k in ['ic', 'kp', 'kad pengenalan', 'mykad']):
                 if not lajur_ic: lajur_ic = c
-            elif any(k in c_lower for k in ['nama', 'student', 'murid', 'name', 'pemohon']):
+            elif any(k == c_lower or k in c_lower for k in ['nama', 'student', 'murid']):
                 if not lajur_nama: lajur_nama = c
-            elif any(k in c_lower for k in ['tingkatan_system', 'kelas_system', 'tingkatan', 'kelas']):
+            elif any(k == c_lower or k in c_lower for k in ['tingkatan_system', 'kelas_system', 'tingkatan', 'kelas']):
                 if not lajur_tingkatan: lajur_tingkatan = c
 
         senarai_subjek = []
         for col in df_all.columns:
-            col_clean = str(col).lower().strip()
+            col_clean = col.lower().strip()
             is_metadata = any(col_clean == k or col_clean.startswith('lajur_') for k in KATA_KUNCI_BUKAN_SUBJEK)
             if not is_metadata and col not in [lajur_ic, lajur_nama, lajur_tingkatan, 'Tingkatan_System', 'Kelas_System']:
                 senarai_subjek.append(col)
@@ -313,135 +279,131 @@ with tab_utama:
         search_ic = st.text_input("Masukkan No. Kad Pengenalan Murid (Tanpa sengkang '-'):", "")
         
         if search_ic:
-            if not lajur_ic:
-                st.error("⚠️ Sistem tidak dapat mengesan lajur No. Kad Pengenalan (IC/KP) secara automatik.")
-            else:
-                clean_search = search_ic.replace('-', '').strip()
-                ic_series = df_all[lajur_ic].astype(str).str.replace('-', '', regex=False).str.strip()
-                murid = df_all[ic_series == clean_search]
+            clean_search = search_ic.replace('-', '').strip()
+            murid = df_all[df_all[lajur_ic].astype(str).str.replace('-', '').str.strip() == clean_search]
+            
+            if not murid.empty:
+                nama_murid = murid[lajur_nama].values[0] if lajur_nama in murid.columns else "Murid"
+                tingkatan_murid = murid['Tingkatan_System'].values[0] if 'Tingkatan_System' in murid.columns else "-"
+                kelas_murid = murid['Kelas_System'].values[0] if 'Kelas_System' in murid.columns else "-"
                 
-                if not murid.empty:
-                    nama_murid = murid[lajur_nama].values[0] if lajur_nama and lajur_nama in murid.columns else "Murid"
-                    tingkatan_murid = murid['Tingkatan_System'].values[0] if 'Tingkatan_System' in murid.columns else "-"
-                    kelas_murid = murid['Kelas_System'].values[0] if 'Kelas_System' in murid.columns else "-"
-                    
-                    tp_data = murid[senarai_subjek].T.reset_index()
-                    tp_data.columns = ['Subjek', 'TP_Raw']
-                    
-                    tp_data['TP'] = tp_data['TP_Raw'].astype(str).str.extract(r'(\d+)')[0]
-                    tp_data = tp_data.dropna(subset=['TP'])
-                    tp_data['TP'] = tp_data['TP'].astype(int)
-                    tp_data = tp_data[(tp_data['TP'] >= 1) & (tp_data['TP'] <= 6)]
-                    
-                    tp_data['TP_Str'] = "TP " + tp_data['TP'].astype(str)
-                    
-                    total_subjek = len(tp_data)
-                    tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
-                    tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
-                    
-                    st.markdown(f"""
+                tp_data = murid[senarai_subjek].T.reset_index()
+                tp_data.columns = ['Subjek', 'TP_Raw']
+                
+                tp_data['TP'] = tp_data['TP_Raw'].astype(str).str.extract(r'(\d+)')[0]
+                tp_data = tp_data.dropna(subset=['TP'])
+                tp_data['TP'] = tp_data['TP'].astype(int)
+                tp_data = tp_data[(tp_data['TP'] >= 1) & (tp_data['TP'] <= 6)]
+                
+                tp_data['TP_Str'] = "TP " + tp_data['TP'].astype(str)
+                
+                total_subjek = len(tp_data)
+                tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
+                tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
+                
+                st.markdown(f"""
 <div class="profile-card">
     <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU</span>
     <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
     <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b>{search_ic}</b></p>
 </div>
 """, unsafe_allow_html=True)
+                
+                m1, m2, m3, m4 = st.columns(4)
+                with m1:
+                    st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
+                with m2:
+                    st.metric("Subjek Penguasaan Tinggi (TP 5-6)", f"{tp_cemerlang} Subjek")
+                with m3:
+                    st.metric("Subjek Bimbingan (TP 1-2)", f"{tp_perlu_perhatian} Subjek")
+                with m4:
+                    tp_max = tp_data['TP'].max() if not tp_data.empty else 0
+                    st.metric("Pencapaian TP Tertinggi", f"TP {tp_max}")
                     
-                    m1, m2, m3, m4 = st.columns(4)
-                    with m1:
-                        st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
-                    with m2:
-                        st.metric("Subjek Penguasaan Tinggi (TP 5-6)", f"{tp_cemerlang} Subjek")
-                    with m3:
-                        st.metric("Subjek Bimbingan (TP 1-2)", f"{tp_perlu_perhatian} Subjek")
-                    with m4:
-                        tp_max = tp_data['TP'].max() if not tp_data.empty else 0
-                        st.metric("Pencapaian TP Tertinggi", f"TP {tp_max}")
-                        
-                    st.markdown("---")
+                st.markdown("---")
+                
+                col_graf, col_jadual = st.columns([10, 12])
+                
+                with col_graf:
+                    st.subheader("📊 Pencapaian TP Mengikut Subjek")
                     
-                    col_graf, col_jadual = st.columns([10, 12])
+                    color_map = {
+                        'TP 6': '#0d904f', 
+                        'TP 5': '#34a853', 
+                        'TP 4': '#1a73e8', 
+                        'TP 3': '#fbbc04', 
+                        'TP 2': '#e67c73', 
+                        'TP 1': '#d93025'
+                    }
                     
-                    with col_graf:
-                        st.subheader("📊 Pencapaian TP Mengikut Subjek")
-                        
-                        color_map = {
-                            'TP 6': '#0d904f', 
-                            'TP 5': '#34a853', 
-                            'TP 4': '#1a73e8', 
-                            'TP 3': '#fbbc04', 
-                            'TP 2': '#e67c73', 
-                            'TP 1': '#d93025'
-                        }
-                        
-                        fig_bar = px.bar(
-                            tp_data,
-                            x='TP',
-                            y='Subjek',
-                            orientation='h',
-                            text='TP_Str',
-                            color='TP_Str',
-                            color_discrete_map=color_map,
-                            title="Skor TP Bagi Setiap Subjek"
-                        )
-                        fig_bar.update_layout(
-                            xaxis=dict(range=[0, 6.5], dtick=1, title="Tahap Penguasaan (TP)"),
-                            yaxis=dict(title="", categoryorder='total ascending'),
-                            showlegend=False,
-                            height=450
-                        )
-                        fig_bar.update_traces(textposition='outside')
-                        st.plotly_chart(fig_bar, use_container_width=True)
+                    fig_bar = px.bar(
+                        tp_data,
+                        x='TP',
+                        y='Subjek',
+                        orientation='h',
+                        text='TP_Str',
+                        color='TP_Str',
+                        color_discrete_map=color_map,
+                        title="Skor TP Bagi Setiap Subjek"
+                    )
+                    fig_bar.update_layout(
+                        xaxis=dict(range=[0, 6.5], dtick=1, title="Tahap Penguasaan (TP)"),
+                        yaxis=dict(title="", categoryorder='total ascending'),
+                        showlegend=False,
+                        height=450
+                    )
+                    fig_bar.update_traces(textposition='outside')
+                    st.plotly_chart(fig_bar, use_container_width=True)
 
-                    with col_jadual:
-                        st.subheader("📋 Senarai Pencapaian Setiap Subjek")
-                        
-                        rows_html = ""
-                        for _, row in tp_data.iterrows():
-                            subjek_name = row['Subjek']
-                            tp_val = row['TP']
-                            tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
-                            rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #495057;'>{tafsiran_txt}</td></tr>"
-                        
-                        html_table = f"<table class='pbd-table'><thead><tr><th style='width: 30%;'>Subjek</th><th style='width: 25%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>"
-                        
-                        st.markdown(html_table, unsafe_allow_html=True)
-                        
-                    st.markdown("---")
-                    st.subheader("📈 Analisis Taburan Penguasaan Murid")
+                with col_jadual:
+                    st.subheader("📋 Senarai Pencapaian Setiap Subjek")
                     
-                    c_pie, c_analisis = st.columns([1, 1])
+                    rows_html = ""
+                    for _, row in tp_data.iterrows():
+                        subjek_name = row['Subjek']
+                        tp_val = row['TP']
+                        tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
+                        rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #495057;'>{tafsiran_txt}</td></tr>"
                     
-                    with c_pie:
-                        taburan_tp = tp_data['TP_Str'].value_counts().reset_index()
-                        taburan_tp.columns = ['TP_Str', 'Bilangan']
+                    html_table = f"<table class='pbd-table'><thead><tr><th style='width: 30%;'>Subjek</th><th style='width: 25%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>"
+                    
+                    st.markdown(html_table, unsafe_allow_html=True)
+                    
+                st.markdown("---")
+                st.subheader("📈 Analisis Taburan Penguasaan Murid")
+                
+                c_pie, c_analisis = st.columns([1, 1])
+                
+                with c_pie:
+                    taburan_tp = tp_data['TP_Str'].value_counts().reset_index()
+                    taburan_tp.columns = ['TP_Str', 'Bilangan']
+                    
+                    fig_pie = px.pie(
+                        taburan_tp, 
+                        values='Bilangan', 
+                        names='TP_Str',
+                        hole=0.4,
+                        title="Nisbah Taburan TP Keseluruhan Subjek",
+                        color='TP_Str',
+                        color_discrete_map=color_map
+                    )
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                    
+                with c_analisis:
+                    st.markdown("#### Ringkasan Analisis Pentaksiran")
+                    
+                    subjek_tinggi = tp_data[tp_data['TP'] >= 5]['Subjek'].tolist()
+                    subjek_rendah = tp_data[tp_data['TP'] <= 2]['Subjek'].tolist()
+                    
+                    if subjek_tinggi:
+                        st.success(f"🌟 **Kekuatan:** Murid menonjol dalam **{len(subjek_tinggi)}** subjek ({', '.join(subjek_tinggi)}).")
+                    else:
+                        st.info("ℹ️ Tiada subjek mencapai TP 5 atau TP 6 buat masa ini.")
                         
-                        fig_pie = px.pie(
-                            taburan_tp, 
-                            values='Bilangan', 
-                            names='TP_Str',
-                            hole=0.4,
-                            title="Nisbah Taburan TP Keseluruhan Subjek",
-                            color='TP_Str',
-                            color_discrete_map=color_map
-                        )
-                        st.plotly_chart(fig_pie, use_container_width=True)
-                        
-                    with c_analisis:
-                        st.markdown("#### Ringkasan Analisis Pentaksiran")
-                        
-                        subjek_tinggi = tp_data[tp_data['TP'] >= 5]['Subjek'].tolist()
-                        subjek_rendah = tp_data[tp_data['TP'] <= 2]['Subjek'].tolist()
-                        
-                        if subjek_tinggi:
-                            st.success(f"🌟 **Kekuatan:** Murid menonjol dalam **{len(subjek_tinggi)}** subjek ({', '.join(subjek_tinggi)}).")
-                        else:
-                            st.info("ℹ️ Tiada subjek mencapai TP 5 atau TP 6 buat masa ini.")
-                            
-                        if subjek_rendah:
-                            st.error(f"⚠️ **Saranan Intervensi:** Bimbingan khusus diperlukan bagi **{len(subjek_rendah)}** subjek ({', '.join(subjek_rendah)}).")
-                        else:
-                            st.success("✅ **Prestasi Baik:** Semua subjek telah melepasi Tahap Penguasaan Minimum (TP 3 dan ke atas).")
+                    if subjek_rendah:
+                        st.error(f"⚠️ **Saranan Intervensi:** Bimbingan khusus diperlukan bagi **{len(subjek_rendah)}** subjek ({', '.join(subjek_rendah)}).")
+                    else:
+                        st.success("✅ **Prestasi Baik:** Semua subjek telah melepasi Tahap Penguasaan Minimum (TP 3 dan ke atas).")
 
-                else:
-                    st.error("No. Kad Pengenalan tidak dijumpai dalam mana-mana kelas tersimpan.")
+            else:
+                st.error("No. Kad Pengenalan tidak dijumpai dalam mana-mana kelas tersimpan.")
