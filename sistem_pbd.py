@@ -5,6 +5,7 @@ import pdfplumber
 import os
 import glob
 import re
+import time
 
 st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide", page_icon="🎓")
 
@@ -54,7 +55,7 @@ with col_header:
 st.markdown("---")
 
 def extract_ic_from_text(text_line):
-    """Mengekstrak No KP 12-digit walaupun bersempang (cth: 111013-02-0847 -> 111013020847)"""
+    """Mengekstrak No KP 12-digit walaupun bersempang"""
     match = re.search(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', text_line)
     if match:
         return re.sub(r'\D', '', match.group(0))
@@ -62,6 +63,7 @@ def extract_ic_from_text(text_line):
 
 def parse_idme_file(uploaded_file):
     records = []
+    ignored = ['BIL', 'LELAKI', 'PEREMPUAN', 'MELAYU', 'CINA', 'INDIA', 'ISLAM', 'KPM', 'PBD', 'MUKA', 'SURAT', 'TAHUN', 'TINGKATAN']
     
     if uploaded_file.name.endswith('.pdf'):
         with pdfplumber.open(uploaded_file) as pdf:
@@ -74,16 +76,16 @@ def parse_idme_file(uploaded_file):
                     ic = extract_ic_from_text(line)
                     if ic:
                         clean_line = re.sub(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', '', line)
-                        clean_line = re.sub(r'[^a-zA-L\s@/\']', ' ', clean_line)
+                        # PEMBAIKAN BUG: a-zA-Z untuk membenarkan SEMUA huruf abjad
+                        clean_line = re.sub(r'[^a-zA-Z\s@/\'\-]', ' ', clean_line)
                         words = [w.strip() for w in clean_line.split() if len(w.strip()) > 1]
                         
-                        ignored = ['BIL', 'LELAKI', 'PEREMPUAN', 'MELAYU', 'CINA', 'INDIA', 'ISLAM', 'KPM', 'PBD', 'MUKA', 'SURAT']
                         name_words = [w for w in words if w.upper() not in ignored]
                         nama = " ".join(name_words) if name_words else "MURID"
                         
                         records.append({
                             'NO_KP': ic,
-                            'NAMA': nama,
+                            'NAMA': nama.upper(),
                             'RAW_TEXT': line
                         })
     else:
@@ -93,12 +95,16 @@ def parse_idme_file(uploaded_file):
             ic = extract_ic_from_text(row_str)
             if ic:
                 clean_str = re.sub(r'\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b', '', row_str)
-                clean_str = re.sub(r'[^a-zA-L\s@/\']', ' ', clean_str)
+                # PEMBAIKAN BUG: a-zA-Z untuk membenarkan SEMUA huruf abjad
+                clean_str = re.sub(r'[^a-zA-Z\s@/\'\-]', ' ', clean_str)
                 words = [w.strip() for w in clean_str.split() if len(w.strip()) > 1]
-                nama = " ".join(words[:4]) if words else "MURID"
+                
+                name_words = [w for w in words if w.upper() not in ignored]
+                nama = " ".join(name_words[:6]) if name_words else "MURID" # Ambil hingga 6 patah perkataan nama
+                
                 records.append({
                     'NO_KP': ic,
-                    'NAMA': nama,
+                    'NAMA': nama.upper(),
                     'RAW_TEXT': row_str
                 })
 
@@ -141,28 +147,35 @@ with tab_pengurusan:
         
         with col_up1:
             st.markdown("**1. Muat Naik Fail idMe Kelas**")
-            pilih_tingkatan = st.selectbox("Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
-            nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1):", "")
-            uploaded_file = st.file_uploader("Pilih Fail PDF / CSV idMe:", type=["pdf", "csv"])
             
-            if uploaded_file is not None:
-                parsed_df = parse_idme_file(uploaded_file)
-                if parsed_df is not None and not parsed_df.empty:
-                    st.success(f"✅ Dikesan **{len(parsed_df)} murid** dalam fail ini!")
-                    st.dataframe(parsed_df[['NO_KP', 'NAMA']], use_container_width=True)
-                    
-                    if st.button("💾 Simpan Data Kelas Ini", type="primary"):
-                        if not nama_kelas.strip():
-                            st.error("Sila masukkan Nama Kelas dahulu.")
-                        else:
-                            parsed_df['Tingkatan_System'] = pilih_tingkatan
-                            parsed_df['Kelas_System'] = nama_kelas.strip()
-                            safe_fn = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
-                            parsed_df.to_csv(os.path.join(DATA_DIR, safe_fn), index=False, encoding='utf-8-sig')
-                            st.success(f"✅ Data `{pilih_tingkatan} - {nama_kelas}` berjaya disimpan!")
-                            st.rerun()
-                else:
-                    st.error("❌ Gagal mengesan No. KP daripada fail PDF. Pastikan fail mengandungi maklumat murid idMe.")
+            with st.form("form_muat_naik_data", clear_on_submit=True):
+                pilih_tingkatan = st.selectbox("Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
+                nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1):", "")
+                uploaded_file = st.file_uploader("Pilih Fail PDF / CSV idMe:", type=["pdf", "csv"])
+                
+                simpan_ditekan = st.form_submit_button("💾 Simpan Data Kelas Ini", type="primary")
+                
+                if simpan_ditekan:
+                    if not nama_kelas.strip():
+                        st.error("❌ Sila masukkan Nama Kelas dahulu.")
+                    elif uploaded_file is None:
+                        st.error("❌ Sila pilih fail PDF atau CSV untuk dimuat naik.")
+                    else:
+                        with st.spinner('Mengekstrak dan menyimpan data... ⏳'):
+                            parsed_df = parse_idme_file(uploaded_file)
+                            
+                            if parsed_df is not None and not parsed_df.empty:
+                                parsed_df['Tingkatan_System'] = pilih_tingkatan
+                                parsed_df['Kelas_System'] = nama_kelas.strip()
+                                safe_fn = f"{pilih_tingkatan}_{nama_kelas.strip()}".replace(" ", "_").replace("/", "_") + ".csv"
+                                file_path = os.path.join(DATA_DIR, safe_fn)
+                                
+                                parsed_df.to_csv(file_path, index=False, encoding='utf-8-sig')
+                                st.success(f"✅ Berjaya! Data {len(parsed_df)} murid disimpan.")
+                                time.sleep(1.5) 
+                                st.rerun()
+                            else:
+                                st.error("❌ Gagal mengekstrak data.")
 
             st.markdown("---")
             st.markdown("**🖼️ Muat Naik Logo Sekolah**")
@@ -178,7 +191,7 @@ with tab_pengurusan:
         with col_up2:
             st.markdown("**2. Data Kelas Tersimpan**")
             files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
-            if not files: st.info("Tiada data tersimpan dalam sistem.")
+            if not files: st.info("Tiada data tersimpan.")
             else:
                 info_list = []
                 for fp in files:
@@ -190,7 +203,7 @@ with tab_pengurusan:
                 
                 st.markdown("---")
                 st.markdown("**🗑️ Pembersihan Data**")
-                if st.button("🔥 Reset Total (Padam Semua Data Lama)", type="secondary"):
+                if st.button("🔥 Padam Semua Fail (Reset Total)", type="secondary"):
                     for fp in files: os.remove(fp)
                     st.success("Semua fail lama dibersihkan.")
                     st.rerun()
@@ -201,7 +214,7 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan dalam sistem.** Sila muat naik fail PDF di Tab Admin terlebih dahulu.")
     else:
-        search_input = st.text_input("🔎 Masukkan No. Kad Pengenalan ATAU Nama Murid:", value="", placeholder="Contoh No. KP: 111013020847 ATAU 111013-02-0847").strip()
+        search_input = st.text_input("🔎 Masukkan No. Kad Pengenalan ATAU Nama Murid:", value="", placeholder="Contoh No. KP: 111013020847").strip()
         matched_row = None
         search_digits = re.sub(r'\D', '', search_input)
 
@@ -222,7 +235,7 @@ with tab_utama:
 
         if search_input and matched_row is None:
             st.error(f"❌ Rekod murid `{search_input}` tidak dijumpai.")
-            with st.expander("🔍 Klik Di Sini Untuk Lihat Senarai No. KP Yang Berjaya Disimpan"):
+            with st.expander("🔍 Klik Di Sini Untuk Lihat Senarai Murid Yang Berjaya Disimpan"):
                 cols = [c for c in ['NO_KP', 'NAMA', 'Kelas_System', 'Tingkatan_System'] if c in df_all.columns]
                 st.dataframe(df_all[cols] if cols else df_all, use_container_width=True)
 
