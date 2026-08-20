@@ -14,7 +14,13 @@ DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = "admin123"
-LOGO_PATH = "logo.png"
+
+# Cari fail logo secara automatik (png, jpg, jpeg)
+LOGO_PATH = None
+for ext in ["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"]:
+    if os.path.exists(f"logo.{ext}"):
+        LOGO_PATH = f"logo.{ext}"
+        break
 
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
@@ -23,7 +29,7 @@ if 'is_admin' not in st.session_state:
 # FUNGSI TUKAR IMEJ KEPADA BASE64 UNTUK HTML
 # =========================================================
 def get_base64_image(image_path):
-    if os.path.exists(image_path):
+    if image_path and os.path.exists(image_path):
         try:
             with open(image_path, "rb") as img_file:
                 return base64.b64encode(img_file.read()).decode('utf-8')
@@ -53,7 +59,7 @@ st.markdown("""
     }
     
     .school-title {
-        font-size: 32px;
+        font-size: 30px;
         font-weight: 800;
         letter-spacing: 0.5px;
         background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
@@ -64,7 +70,7 @@ st.markdown("""
     }
     
     .system-title {
-        font-size: 17px;
+        font-size: 16px;
         color: #e2e8f0;
         font-weight: 500;
         margin-top: 6px;
@@ -161,9 +167,9 @@ st.markdown("""
 logo_b64 = get_base64_image(LOGO_PATH)
 
 if logo_b64:
-    logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="85" style="border-radius: 10px; padding: 4px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 10px rgba(0,0,0,0.15);">'
+    logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="80" style="border-radius: 10px; padding: 4px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 10px rgba(0,0,0,0.15); max-height: 80px; object-fit: contain;">'
 else:
-    logo_html = '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 85px; height: 85px; display: flex; align-items: center; justify-content: center; font-size: 38px;">🏫</div>'
+    logo_html = '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 75px; height: 75px; display: flex; align-items: center; justify-content: center; font-size: 35px;">🏫</div>'
 
 st.markdown(f"""
 <div class="header-banner">
@@ -185,10 +191,10 @@ KATA_KUNCI_BUKAN_SUBJEK = [
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata'
 ]
 
-def extract_ic_candidates(val):
-    """Mengekstrak kepingan 12 digit No. KP daripada pelbagai format data."""
+def clean_cell_string(val):
+    """Menukar nilai sel kepada teks bersih tanpa format saintifik."""
     if pd.isna(val) or val is None:
-        return []
+        return ""
     s = str(val).strip()
     if 'e+' in s.lower() or 'e-' in s.lower():
         try:
@@ -197,16 +203,7 @@ def extract_ic_candidates(val):
             pass
     elif s.endswith('.0'):
         s = s[:-2]
-
-    # 1. Cari blok 12 digit tepat (tanpa mengira tanda sempang/ruang)
-    s_clean = re.sub(r'[-\s]', '', s)
-    exact_12 = re.findall(r'\d{12}', s_clean)
-    if exact_12:
-        return exact_12
-    
-    # 2. Fallback: Ambil semua digit
-    only_digits = re.sub(r'\D', '', s)
-    return [only_digits] if only_digits else []
+    return s
 
 def dapatkan_tafsiran_tp(tp_val):
     tafsiran = {
@@ -273,15 +270,15 @@ def load_all_saved_data():
 # =========================================================
 # TAB UTAMA
 # =========================================================
-tab_utama, tab_pengurusan = st.tabs(["🔍 Semakan & Analisis PBD", "🔒 Pengurusan Data (Admin Only)"])
+tab_utama, tab_pengurusan = st.tabs(["🔍 Semakan & Analisis PBD", "🔒 Pengurusan Data & Logo (Admin)"])
 
 # ---------------------------------------------------------
-# TAB 2: PENGURUSAN DATA KEKAL (ADMIN ONLY)
+# TAB 2: PENGURUSAN DATA KEKAL & LOGO (ADMIN ONLY)
 # ---------------------------------------------------------
 with tab_pengurusan:
     if not st.session_state['is_admin']:
         st.subheader("🔐 Pengesahan Pentadbir (Admin)")
-        st.info("Bahagian ini terhad kepada Pentadbir Sistem sahaja untuk muat naik atau memadam data.")
+        st.info("Bahagian ini terhad kepada Pentadbir Sistem sahaja untuk muat naik data atau logo sekolah.")
         col_pass, _ = st.columns([1, 2])
         with col_pass:
             input_pass = st.text_input("Masukkan Kata Laluan Admin:", type="password")
@@ -295,7 +292,7 @@ with tab_pengurusan:
     else:
         c_title, c_logout = st.columns([4, 1])
         with c_title:
-            st.subheader("📥 Muat Naik & Memadam Data PBD Kelas")
+            st.subheader("📥 Pengurusan Data PBD Kelas & Logo Sekolah")
         with c_logout:
             if st.button("🚪 Log Keluar Admin"):
                 st.session_state['is_admin'] = False
@@ -304,12 +301,12 @@ with tab_pengurusan:
         st.markdown("---")
         col_up1, col_up2 = st.columns([1, 1])
         with col_up1:
-            st.markdown("**1. Maklumat Kelas & Fail Baru**")
+            st.markdown("**1. Muat Naik Data PBD Kelas**")
             pilih_tingkatan = st.selectbox("Pilih Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
             nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1 / 2 Amanah):", "")
             uploaded_file = st.file_uploader("Pilih Fail PDF / CSV (idMe):", type=["pdf", "csv"])
             
-            if st.button("💾 Simpan Data Secara Kekal", type="primary"):
+            if st.button("💾 Simpan Data Kelas", type="primary"):
                 if not nama_kelas.strip():
                     st.error("Sila masukkan Nama Kelas terlebih dahulu.")
                 elif uploaded_file is None:
@@ -337,6 +334,20 @@ with tab_pengurusan:
                             st.error("Gagal membaca kandungan fail. Sila semak format PDF/CSV.")
                     except Exception as e:
                         st.error(f"Ralat semasa menyimpan: {e}")
+
+            st.markdown("---")
+            st.markdown("**🖼️ Muat Naik / Kemas Kini Logo Sekolah**")
+            uploaded_logo = st.file_uploader("Pilih Fail Logo Sekolah (PNG / JPG):", type=["png", "jpg", "jpeg"])
+            if st.button("🖼️ Simpan Logo Sekolah"):
+                if uploaded_logo is not None:
+                    ext = uploaded_logo.name.split('.')[-1]
+                    logo_save_path = f"logo.{ext}"
+                    with open(logo_save_path, "wb") as f:
+                        f.write(uploaded_logo.getbuffer())
+                    st.success("✅ Logo sekolah berjaya dikemas kini!")
+                    st.rerun()
+                else:
+                    st.error("Sila pilih fail imej logo dahulu.")
 
         with col_up2:
             st.markdown("**2. Senarai Data Tersimpan Dalam Sistem**")
@@ -374,79 +385,59 @@ with tab_utama:
     df_all = load_all_saved_data()
     
     if df_all is None or df_all.empty:
-        st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
+        st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data & Logo'.")
     else:
         search_input = st.text_input(
             "🔎 Masukkan No. Kad Pengenalan ATAU Nama Murid:",
             value="",
-            placeholder="Contoh No. KP: 111013020847 ATAU Nama: MUHAMMAD ADAM"
+            placeholder="Contoh No. KP: 110616020075 ATAU Nama: MUHAMMAD ADAM"
         ).strip()
 
         matched_row = None
-        target_digits = re.sub(r'\D', '', search_input)
-        target_text_lower = search_input.lower()
+        search_digits = re.sub(r'\D', '', search_input)
 
-        # LOGIK CARIAN DUO (NO. KP & NAMA MURID)
+        # LOGIK CARIAN ULTRAROBUST (DIGIT & TEKS SEJAJAT)
         if search_input:
             for idx, row in df_all.iterrows():
-                row_matched = False
-                for col_name, val in row.items():
-                    val_str = str(val).strip()
-                    val_lower = val_str.lower()
-                    
-                    # 1. Semakan Berdasarkan No. KP
-                    if target_digits:
-                        candidates = extract_ic_candidates(val_str)
-                        for ic in candidates:
-                            if ic == target_digits or (len(target_digits) >= 10 and target_digits in ic):
-                                matched_row = row
-                                row_matched = True
-                                break
-                    if row_matched:
+                # Gabungkan seluruh kandungan baris menjadi satu teks & satu rentetan digit
+                row_raw_list = [clean_cell_string(val) for val in row.values]
+                row_full_str = " ".join(row_raw_list)
+                row_full_digits = re.sub(r'\D', '', row_full_str)
+
+                # 1. Padanan Berdasarkan Digit IC (Sekiranya pengguna memasukkan sekurang-kurangnya 6 digit)
+                if search_digits and len(search_digits) >= 6:
+                    if search_digits in row_full_digits:
+                        matched_row = row
                         break
 
-                    # 2. Semakan Berdasarkan Nama Murid
-                    if len(target_text_lower) >= 3 and not search_input.isdigit():
-                        if target_text_lower in val_lower and not any(k in str(col_name).lower() for k in ['tingkatan_system', 'kelas_system']):
-                            matched_row = row
-                            row_matched = True
-                            break
-                            
-                if matched_row is not None:
+                # 2. Padanan Berdasarkan Teks Nama Murid
+                if len(search_input) >= 3 and search_input.lower() in row_full_str.lower():
+                    matched_row = row
                     break
 
         if search_input and matched_row is None:
             st.error(f"❌ Rekod murid `{search_input}` tidak dijumpai dalam sistem SMK Dato' Syed Omar.")
             
-            with st.expander("🔍 Semak Senarai Nama & IC yang Wujud Dalam Sistem"):
-                st.write("Senarai di bawah memaparkan semua rekod murid yang telah berjaya dimuat naik ke dalam sistem:")
+            with st.expander("🔍 Semak Senarai Data Yang Dikesan Dalam Sistem"):
+                st.write("Semak senarai penuh data yang wujud dalam pangkalan data tersimpan:")
                 preview_list = []
                 for _, r in df_all.iterrows():
-                    nama_tmp = ""
-                    for c_name, c_val in r.items():
-                        if any(k in str(c_name).lower() for k in ['nama', 'student', 'murid', 'name']):
-                            nama_tmp = str(c_val).strip()
-                            break
-                    if not nama_tmp:
-                        nama_tmp = next((str(v) for v in r.values if len(str(v)) > 3 and not str(v).isdigit()), "Murid PBD")
-                    
-                    # Cari No. KP dalam mana-mana sel
-                    ic_tmp = "-"
-                    for cell_val in r.values:
-                        c_list = extract_ic_candidates(cell_val)
-                        if c_list and len(c_list[0]) in [11, 12]:
-                            ic_tmp = c_list[0]
-                            break
-                            
+                    row_vals = [clean_cell_string(v) for v in r.values]
+                    # Cari Nama
+                    nama_tmp = next((v for v in row_vals if len(v) > 3 and not v.isdigit()), "Murid")
+                    # Cari IC (12 digit atau terdekat)
+                    ic_tmp = next((v for v in row_vals if len(re.sub(r'\D', '', v)) >= 10), "-")
                     preview_list.append({"Nama Murid": nama_tmp, "No. IC Dikesan": ic_tmp, "Kelas": r.get('Kelas_System', '-')})
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True)
 
         elif matched_row is not None:
-            # Ekstrak Nama Murid secara Dinamik
+            row_clean_vals = [clean_cell_string(val) for val in matched_row.values]
+
+            # Ekstrak Nama Murid
             nama_murid = ""
             for col, val in matched_row.items():
                 if any(k in str(col).lower() for k in ['nama', 'student', 'murid', 'name']):
-                    s_val = str(val).strip()
+                    s_val = clean_cell_string(val)
                     if s_val and s_val.lower() not in ['nan', 'none']:
                         nama_murid = s_val
                         break
@@ -455,20 +446,20 @@ with tab_utama:
                 for col, val in matched_row.items():
                     if col in ['Tingkatan_System', 'Kelas_System']:
                         continue
-                    s_val = str(val).strip()
+                    s_val = clean_cell_string(val)
                     if len(s_val) > len(best_text) and not re.search(r'\d', s_val):
                         best_text = s_val
                 nama_murid = best_text if best_text else "Murid"
 
-            # Ekstrak IC untuk Paparan Profil
+            # Ekstrak No. KP Paparan
             ic_display = "-"
-            for cell_val in matched_row.values:
-                c_list = extract_ic_candidates(cell_val)
-                if c_list and len(c_list[0]) in [11, 12]:
-                    ic_display = c_list[0]
+            for v in row_clean_vals:
+                d = re.sub(r'\D', '', v)
+                if len(d) in [11, 12]:
+                    ic_display = d
                     break
-            if ic_display == "-" and target_digits:
-                ic_display = target_digits
+            if ic_display == "-" and search_digits:
+                ic_display = search_digits
 
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
