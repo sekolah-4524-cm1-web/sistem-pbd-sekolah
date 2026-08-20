@@ -44,23 +44,16 @@ def extract_ic(text):
     return re.sub(r'\D', '', match.group()) if match else None
 
 def clean_name(text, ic_str):
-    # Buang IC dan tinggalkan huruf & sengkang/slash (seperti A/L, A/P)
     clean = str(text).replace(ic_str, '')
     clean = re.sub(r'[^a-zA-Z\s/]', ' ', clean)
     words = [w.strip().upper() for w in clean.split() if len(w.strip()) > 1]
-    
-    # Senarai hitam perkataan yang BUKAN nama
-    ignored = ['LELAKI', 'PEREMPUAN', 'ISLAM', 'MELAYU', 'CINA', 'INDIA', 'BUMIPUTERA', 'KPM', 'PBD', 'NAMA', 'MURID', 'TINGKATAN', 'KELAS', 'NO', 'KAD', 'PENGENALAN', 'MYKID', 'TARIKH', 'TAHUN', 'MUKA', 'SURAT', 'SEKOLAH', 'KEMENTERIAN', 'PENDIDIKAN']
-    
+    ignored = ['LELAKI', 'PEREMPUAN', 'ISLAM', 'MELAYU', 'CINA', 'INDIA', 'BUMIPUTERA', 'KPM', 'PBD', 'NAMA', 'MURID', 'TINGKATAN', 'KELAS', 'NO', 'KAD', 'PENGENALAN', 'MYKID', 'TARIKH', 'TAHUN', 'MUKA', 'SURAT', 'SEKOLAH']
     name_words = [w for w in words if w not in ignored]
-    nama = " ".join(name_words[:7]).strip() # Ambil max 7 patah perkataan
-    
-    return nama if len(nama) > 3 else "MURID"
+    nama = " ".join(name_words[:7]).strip()
+    return nama if len(nama) > 3 else "SILA EDIT NAMA" # Tukar dari MURID
 
 def parse_data_file(uploaded_file):
     records = []
-    
-    # JIKA FAIL CSV 
     if uploaded_file.name.lower().endswith('.csv'):
         df = pd.read_csv(uploaded_file, dtype=str, keep_default_na=False)
         for _, row in df.iterrows():
@@ -68,11 +61,9 @@ def parse_data_file(uploaded_file):
             ic = extract_ic(row_str)
             if ic: records.append({'NO_KP': ic, 'NAMA': clean_name(row_str, ic)})
             
-    # JIKA FAIL PDF
     elif uploaded_file.name.lower().endswith('.pdf'):
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
-                # STRATEGI 1: Baca sebagai Jadual
                 tables = page.extract_tables()
                 if tables:
                     for table in tables:
@@ -80,8 +71,6 @@ def parse_data_file(uploaded_file):
                             row_str = " ".join([str(cell) for cell in row if cell])
                             ic = extract_ic(row_str)
                             if ic: records.append({'NO_KP': ic, 'NAMA': clean_name(row_str, ic)})
-                
-                # STRATEGI 2: Jika Jadual gagal, baca teks dan cantum baris
                 if not records:
                     text = page.extract_text() or ""
                     lines = text.split('\n')
@@ -89,8 +78,8 @@ def parse_data_file(uploaded_file):
                         ic = extract_ic(line)
                         if ic and not any(r['NO_KP'] == ic for r in records):
                             context = line
-                            if i > 0: context += " " + lines[i-1] # Ambil baris atas
-                            if i < len(lines)-1: context += " " + lines[i+1] # Ambil baris bawah
+                            if i > 0: context += " " + lines[i-1]
+                            if i < len(lines)-1: context += " " + lines[i+1]
                             records.append({'NO_KP': ic, 'NAMA': clean_name(context, ic)})
 
     if records:
@@ -130,9 +119,8 @@ with tab_pengurusan:
             if uploaded_file:
                 parsed_df = parse_data_file(uploaded_file)
                 if parsed_df is not None and not parsed_df.empty:
-                    st.success("Sila semak jadual di bawah. **Anda boleh klik dan taip terus pada nama jika tersilap!**")
+                    st.warning("⚠️ **TINDAKAN DIPERLUKAN:** Jika nama dipaparkan sebagai 'SILA EDIT NAMA', klik pada kotak tersebut dan taip nama sebenar pelajar sebelum menekan butang Simpan.")
                     
-                    # JADUAL BOLEH DIEDIT MANUAL OLEH ADMIN SEBELUM SIMPAN
                     edited_df = st.data_editor(parsed_df, use_container_width=True, hide_index=True)
                     
                     if st.button("💾 Simpan Data Ini", type="primary"):
@@ -172,11 +160,24 @@ with tab_utama:
                     
         if search_input and matched_row is None: st.error("❌ Rekod tidak dijumpai.")
         elif matched_row is not None:
+            nama_m = matched_row.get('NAMA', 'TIADA MAKLUMAT')
+            ic_m = matched_row.get('NO_KP', search_digits)
+            tingkatan_m = matched_row.get('Tingkatan_System', '-')
+            kelas_m = matched_row.get('Kelas_System', '-')
+
             st.markdown(f"""
             <div class="profile-card">
-                <span style="color: #2563eb; font-size: 11px; font-weight: 800;">SMK DATO' SYED OMAR</span>
-                <h2 style="margin: 4px 0;">{matched_row.get('NAMA', '')}</h2>
-                <p style="margin: 0;"><b>{matched_row.get('Tingkatan_System', '')} ({matched_row.get('Kelas_System', '')})</b> | No. KP: <b>{matched_row.get('NO_KP', '')}</b></p>
+                <span style="color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU — SMK DATO' SYED OMAR</span>
+                <h2 style="margin: 4px 0; color: #0f172a; font-size: 22px;">{nama_m}</h2>
+                <p style="margin: 0; font-size: 14px; color: #475569;">Tingkatan / Kelas: <b>{tingkatan_m} ({kelas_m})</b> &nbsp;|&nbsp; No. KP: <b>{ic_m}</b></p>
             </div>
             """, unsafe_allow_html=True)
-            st.success("✅ Rekod sedia dalam pangkalan data.")
+            
+            # MENGEMBALIKAN PAPARAN LENGKAP YANG HILANG
+            col_a, col_b = st.columns([1, 1])
+            with col_a:
+                st.metric("Status Carian", "REKOD DIJUMPAI ✅")
+                st.write(f"**No. Kad Pengenalan:** `{ic_m}`")
+                st.write(f"**Nama Penuh:** `{nama_m}`")
+            with col_b:
+                st.success("Rekod murid disahkan wujud dan sedia dalam pangkalan data.")
