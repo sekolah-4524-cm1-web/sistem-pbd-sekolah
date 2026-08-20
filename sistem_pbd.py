@@ -7,88 +7,165 @@ import glob
 import re
 
 # 1. Konfigurasi Halaman & Folder Storage Setempat
-st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide")
+st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide", page_icon="🎓")
 
 DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = "admin123"
-LOGO_PATH = "logo.png"  # Letakkan fail logo.png dalam folder yang sama
+LOGO_PATH = "logo.png"
 
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
 
-# --- SUNTIKAN GAYA CSS PREMIUM ---
+# =========================================================
+# SUNTIKAN GAYA CSS PREMIUM & REKA BENTUK WARNA MENARIK
+# =========================================================
 st.markdown("""
     <style>
+    /* Latar Belakang & Fon Utama */
+    .stApp {
+        background-color: #f8fafc;
+    }
+    
+    /* Banner Header Utama */
+    .header-banner {
+        background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #1e3a8a 100%);
+        padding: 28px 32px;
+        border-radius: 20px;
+        box-shadow: 0 12px 28px -5px rgba(15, 23, 42, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        margin-bottom: 28px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+    }
+    
+    .school-title {
+        font-size: 32px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin: 0;
+        line-height: 1.2;
+    }
+    
+    .system-title {
+        font-size: 18px;
+        color: #e2e8f0;
+        font-weight: 500;
+        margin-top: 6px;
+        margin-bottom: 0;
+        letter-spacing: 0.3px;
+    }
+
+    /* Kad Profil Murid */
     .profile-card {
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-        padding: 22px;
-        border-radius: 14px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        border-left: 6px solid #1a73e8;
+        background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+        padding: 24px;
+        border-radius: 16px;
+        box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.06);
+        border-left: 6px solid #3b82f6;
+        border-top: 1px solid #e2e8f0;
+        border-right: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0;
         margin-bottom: 25px;
     }
+    
+    .profile-tag {
+        color: #3b82f6;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 1.2px;
+        text-transform: uppercase;
+    }
+
+    /* Styling Jadual PBD */
     .pbd-table {
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
         background-color: white;
-        border-radius: 12px;
+        border-radius: 14px;
         overflow: hidden;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.04);
+        border: 1px solid #e2e8f0;
     }
     .pbd-table th {
-        background-color: #f1f3f4;
-        color: #3c4043;
-        padding: 14px;
-        font-weight: 700;
+        background: linear-gradient(90deg, #1e293b 0%, #334155 100%);
+        color: #ffffff;
+        padding: 16px;
+        font-weight: 600;
+        font-size: 14px;
         text-align: left;
-        border-bottom: 2px solid #dadce0;
     }
     .pbd-table td {
-        padding: 12px 14px;
-        border-bottom: 1px solid #f1f3f5;
-        color: #343a40;
+        padding: 14px 16px;
+        border-bottom: 1px solid #f1f5f9;
+        color: #334155;
+        font-size: 14px;
     }
-    .pbd-table tr:hover { background-color: #f8f9fa; }
+    .pbd-table tr:hover { background-color: #f8fafc; }
+
+    /* Lencana (Badges) Tahap Penguasaan (TP) */
     .badge {
-        padding: 6px 14px;
+        padding: 6px 16px;
         border-radius: 20px;
-        font-weight: bold;
+        font-weight: 700;
         color: white;
         display: inline-block;
-        font-size: 13px;
+        font-size: 12px;
         text-align: center;
-        min-width: 60px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.12);
     }
-    .badge-tp6 { background-color: #0d904f; }
-    .badge-tp5 { background-color: #34a853; }
-    .badge-tp4 { background-color: #1a73e8; }
-    .badge-tp3 { background-color: #fbbc04; color: #333; }
-    .badge-tp2 { background-color: #e67c73; }
-    .badge-tp1 { background-color: #d93025; }
+    .badge-tp6 { background: linear-gradient(135deg, #059669, #10b981); }
+    .badge-tp5 { background: linear-gradient(135deg, #16a34a, #22c55e); }
+    .badge-tp4 { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+    .badge-tp3 { background: linear-gradient(135deg, #d97706, #f59e0b); color: #fff; }
+    .badge-tp2 { background: linear-gradient(135deg, #ea580c, #f97316); }
+    .badge-tp1 { background: linear-gradient(135deg, #dc2626, #ef4444); }
+
+    /* Customizing Streamlit Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 10px 20px;
+        border: 1px solid #e2e8f0;
+        font-weight: 600;
+        color: #64748b;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        color: white !important;
+        border: none !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
     </style>
 """, unsafe_allow_html=True)
 
 # =========================================================
-# BAHAGIAN TAJUK & LOGO SEKOLAH
+# BAHAGIAN TAJUK & LOGO SEKOLAH (BANNER BERWARNA)
 # =========================================================
-col_logo, col_title = st.columns([1, 6])
+logo_html = ""
+if os.path.exists(LOGO_PATH):
+    logo_html = f'<img src="data:image/png;base64,{st.image(LOGO_PATH)}" width="90" style="border-radius: 12px;">'
+else:
+    logo_html = '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 85px; height: 85px; display: flex; align-items: center; justify-content: center; font-size: 38px;">🏫</div>'
 
-with col_logo:
-    if os.path.exists(LOGO_PATH):
-        st.image(LOGO_PATH, width=100)
-    else:
-        st.image("https://via.placeholder.com/100x100.png?text=LOGO", width=100)
-
-with col_title:
-    st.markdown("""
-        <h1 style='color: #1a73e8; margin-bottom: 0px; padding-top: 0px;'>SMK DATO' SYED OMAR</h1>
-        <h3 style='color: #5f6368; margin-top: 0px; font-weight: 400;'>Sistem Pelaporan & Pengurusan Data PBD</h3>
-    """, unsafe_allow_html=True)
-
-st.markdown("---")
+st.markdown(f"""
+<div class="header-banner">
+    <div>{logo_html}</div>
+    <div>
+        <h1 class="school-title">SMK DATO' SYED OMAR</h1>
+        <p class="system-title">✨ Sistem Pelaporan & Pengurusan Data Pentaksiran Bilik Darjah (PBD)</p>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # =========================================================
 # FUNGSI PEMBANTU & PEMBERSIHAN DATA
@@ -99,7 +176,6 @@ KATA_KUNCI_BUKAN_SUBJEK = [
 ]
 
 def clean_ic_digits(val):
-    """Mengekstrak digit angka sahaja daripada pelbagai format input/fail."""
     if pd.isna(val) or val is None:
         return ""
     s = str(val).strip()
@@ -281,7 +357,6 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
-        # Kesan Lajur Nama & IC
         lajur_ic, lajur_nama = None, None
         for c in df_all.columns:
             c_lower = str(c).lower().strip()
@@ -297,9 +372,8 @@ with tab_utama:
             if not is_metadata and col not in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
                 senarai_subjek.append(col)
 
-        # PETAK INPUT TAIP IC SAHAJA
         search_ic_input = st.text_input(
-            "Masukkan No. Kad Pengenalan Murid (Lengkap):",
+            "🔎 Masukkan No. Kad Pengenalan Murid (Lengkap):",
             value="",
             placeholder="Contoh: 111013020847 atau 111013-02-0847"
         )
@@ -308,11 +382,9 @@ with tab_utama:
         user_ic_digits = clean_ic_digits(search_ic_input)
 
         if user_ic_digits:
-            # LOGIK CARIAN DIGIT PINTAR & LENGKAP
             for _, row in df_all.iterrows():
                 row_all_digits = [clean_ic_digits(val) for val in row.values if clean_ic_digits(val)]
                 
-                # 1. Padanan Tepat (Exact Match)
                 for d in row_all_digits:
                     if d == user_ic_digits:
                         matched_row = row
@@ -327,7 +399,6 @@ with tab_utama:
                 if matched_row is not None:
                     break
 
-                # 2. Padanan Substring
                 for d in row_all_digits:
                     if len(user_ic_digits) >= 8 and (user_ic_digits in d or d in user_ic_digits):
                         matched_row = row
@@ -350,7 +421,6 @@ with tab_utama:
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True)
 
         elif matched_row is not None:
-            # Ekstrak Nama Murid
             nama_murid = matched_row[lajur_nama] if lajur_nama and lajur_nama in matched_row else None
             if not nama_murid or str(nama_murid).strip().lower() in ['', 'nan', 'none']:
                 for val in matched_row.values:
@@ -361,7 +431,6 @@ with tab_utama:
             if not nama_murid:
                 nama_murid = "Murid"
 
-            # Ekstrak No IC Penuh
             ic_display = clean_ic_digits(matched_row[lajur_ic]) if lajur_ic and lajur_ic in matched_row else ""
             if not ic_display or len(ic_display) < 6:
                 ic_display = user_ic_digits
@@ -385,9 +454,9 @@ with tab_utama:
 
             st.markdown(f"""
 <div class="profile-card">
-    <span style="color: #5f6368; font-size: 13px; font-weight: bold; letter-spacing: 1px;">PROFIL PENTAKSIRAN INDIVIDU — SMK DATO' SYED OMAR</span>
-    <h2 style="margin: 4px 0; color: #1a73e8;">{nama_murid}</h2>
-    <p style="margin: 0; font-size: 15px; color: #3c4043;">Tingkatan / Kelas: <b>{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b>{ic_display}</b></p>
+    <span class="profile-tag">PROFIL PENTAKSIRAN INDIVIDU — SMK DATO' SYED OMAR</span>
+    <h2 style="margin: 6px 0; color: #0f172a; font-size: 26px; font-weight: 700;">{nama_murid}</h2>
+    <p style="margin: 0; font-size: 15px; color: #475569;">Tingkatan / Kelas: <b style="color: #1e293b;">{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b style="color: #1e293b;">{ic_display}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -404,7 +473,14 @@ with tab_utama:
 
             with col_graf:
                 st.subheader("📊 Pencapaian TP Mengikut Subjek")
-                color_map = {'TP 6': '#0d904f', 'TP 5': '#34a853', 'TP 4': '#1a73e8', 'TP 3': '#fbbc04', 'TP 2': '#e67c73', 'TP 1': '#d93025'}
+                color_map = {
+                    'TP 6': '#10b981', 
+                    'TP 5': '#22c55e', 
+                    'TP 4': '#3b82f6', 
+                    'TP 3': '#f59e0b', 
+                    'TP 2': '#f97316', 
+                    'TP 1': '#ef4444'
+                }
                 fig_bar = px.bar(tp_data, x='TP', y='Subjek', orientation='h', text='TP_Str', color='TP_Str', color_discrete_map=color_map, title="Skor TP Bagi Setiap Subjek")
                 fig_bar.update_layout(xaxis=dict(range=[0, 6.5], dtick=1, title="Tahap Penguasaan (TP)"), yaxis=dict(title="", categoryorder='total ascending'), showlegend=False, height=450)
                 fig_bar.update_traces(textposition='outside')
@@ -417,8 +493,8 @@ with tab_utama:
                     subjek_name = row['Subjek']
                     tp_val = row['TP']
                     tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
-                    rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #495057;'>{tafsiran_txt}</td></tr>"
-                st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 30%;'>Subjek</th><th style='width: 25%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
+                    rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #475569;'>{tafsiran_txt}</td></tr>"
+                st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 32%;'>Subjek</th><th style='width: 23%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader("📈 Analisis Taburan Penguasaan Murid")
@@ -426,7 +502,7 @@ with tab_utama:
             with c_pie:
                 taburan_tp = tp_data['TP_Str'].value_counts().reset_index()
                 taburan_tp.columns = ['TP_Str', 'Bilangan']
-                fig_pie = px.pie(taburan_tp, values='Bilangan', names='TP_Str', hole=0.4, title="Nisbah Taburan TP Keseluruhan Subjek", color='TP_Str', color_discrete_map=color_map)
+                fig_pie = px.pie(taburan_tp, values='Bilangan', names='TP_Str', hole=0.45, title="Nisbah Taburan TP Keseluruhan Subjek", color='TP_Str', color_discrete_map=color_map)
                 st.plotly_chart(fig_pie, use_container_width=True)
             with c_analisis:
                 st.markdown("#### Ringkasan Analisis Pentaksiran")
