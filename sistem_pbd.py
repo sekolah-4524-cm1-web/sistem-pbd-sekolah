@@ -163,15 +163,14 @@ st.markdown(f"""
 # =========================================================
 # FUNGSI PEMBANTU & PEMBACA CSV PINTAR
 # =========================================================
-KATA_KUNCI_BUKAN_SUBJEK = [
+EXCLUDED_METADATA_KEYS = {
     'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp', 'nokp',
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata',
     'tingkatan_system', 'kelas_system', 'sekolah', 'kpm', 'laporan', 'guru', 'tarikh', 'kod',
-    'menengah', 'kebangsaan', 'status', 'catatan'
-]
+    'menengah', 'kebangsaan', 'status', 'catatan', 'no_kp', 'nama murid', 'nama pelajar', 'ulasan'
+}
 
 def clean_ic_digits(val):
-    """Pembersih Digit IC Teguh"""
     if pd.isna(val) or val is None: return ""
     s = str(val).strip().replace('="', '').replace('"', '').replace("'", "")
     if 'e' in s.lower():
@@ -181,7 +180,6 @@ def clean_ic_digits(val):
     return re.sub(r'\D', '', s)
 
 def is_ic_match(ic1, ic2):
-    """Sistem Padanan IC Pintar dengan zfill(12)"""
     c1 = clean_ic_digits(ic1)
     c2 = clean_ic_digits(ic2)
     if not c1 or not c2: return False
@@ -201,12 +199,10 @@ def dapatkan_tafsiran_tp(tp_val):
     return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
 
 def read_idme_csv(uploaded_file):
-    """Pembaca CSV idMe Pintar dengan Content-Based Detection"""
     try:
         raw_df = None
         encodings = ['utf-8', 'latin1', 'cp1252', 'utf-8-sig']
         
-        # 1. Buka fail dengan variasi pemisah
         for sep_char in [None, ';', ',', '\t']:
             for enc in encodings:
                 try:
@@ -224,7 +220,6 @@ def read_idme_csv(uploaded_file):
 
         if raw_df is None or raw_df.empty: return None
 
-        # 2. Cari baris header
         header_idx = None
         for idx, row in raw_df.iterrows():
             row_str = " ".join([str(v).upper() for v in row.values if pd.notna(v)])
@@ -250,7 +245,7 @@ def read_idme_csv(uploaded_file):
             p_str = str(prev_row[i]).strip().replace('\n', ' ') if prev_row is not None and i < len(prev_row) else ""
             
             if not c_str or c_str.startswith('Unnamed'):
-                c_str = p_str if p_str else f"Lajur_{i+1}"
+                c_str = p_str if p_str else f"Subjek_{i+1}"
             elif p_str and p_str.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not p_str.upper().startswith('SEKOLAH'):
                 if 'TP' in c_str.upper(): c_str = p_str
                 elif c_str.upper() != p_str.upper(): c_str = f"{p_str} ({c_str})"
@@ -261,16 +256,14 @@ def read_idme_csv(uploaded_file):
         df.columns = final_cols
         df = df.dropna(how='all').copy()
 
-        # 3. Pengecaman Lajur IC & NAMA (Pintar: Tajuk + Kandungan)
         col_ic, col_nama = None, None
         for c in df.columns:
             c_u = str(c).upper().strip()
-            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO KP', 'PENGENALAN', 'DOKUMEN', 'PASPORT']) and 'SEKOLAH' not in c_u:
+            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO KP', 'PENGENALAN']) and 'SEKOLAH' not in c_u:
                 col_ic = c
             elif not col_nama and any(k in c_u for k in ['NAMA', 'NAME', 'MURID', 'PELAJAR']) and 'SEKOLAH' not in c_u and 'GURU' not in c_u:
                 col_nama = c
 
-        # Kandungan Fallback jika tajuk gagal
         if not col_ic:
             for c in df.columns:
                 sample = [clean_ic_digits(v) for v in df[c].dropna().head(15)]
@@ -291,7 +284,6 @@ def read_idme_csv(uploaded_file):
         if col_nama: rename_map[col_nama] = 'NAMA'
         if rename_map: df = df.rename(columns=rename_map)
 
-        # Penapis baris murid sahaja
         if 'NO_KP' in df.columns:
             df['NO_KP_CLEAN'] = df['NO_KP'].apply(clean_ic_digits)
             df = df[df['NO_KP_CLEAN'].str.len() >= 8].copy()
@@ -411,7 +403,6 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
-        # Carian Lajur IC & NAMA Dinamik
         lajur_ic = next((c for c in df_all.columns if any(k in str(c).upper() for k in ['NO_KP', 'IC', 'KP', 'PENGENALAN'])), None)
         lajur_nama = next((c for c in df_all.columns if 'NAMA' in str(c).upper()), None)
 
@@ -421,13 +412,6 @@ with tab_utama:
                 if len(sample) > 0 and sum(1 for v in sample if len(v) in [11, 12]) / len(sample) >= 0.5:
                     lajur_ic = c
                     break
-
-        senarai_subjek = []
-        for col in df_all.columns:
-            col_clean = str(col).lower().strip()
-            is_metadata = any(col_clean == k or col_clean.startswith('lajur_') or k in col_clean for k in KATA_KUNCI_BUKAN_SUBJEK)
-            if not is_metadata and col not in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
-                senarai_subjek.append(col)
 
         search_ic_input = st.text_input("🔎 Masukkan No. Kad Pengenalan Murid (Lengkap):", value="", placeholder="Contoh: 111013020847 atau 111013-02-0847")
         user_ic_digits = clean_ic_digits(search_ic_input)
@@ -459,14 +443,36 @@ with tab_utama:
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
+            # PINTAR: Imbas SEMUA lajur bagi rekod murid untuk mengekstrak nilai TP
             subjek_records = []
-            for sub in senarai_subjek:
-                val = matched_row.get(sub, '')
-                tp_match = re.search(r'(\d+)', str(val))
+            for col in df_all.columns:
+                if col in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
+                    continue
+                
+                col_clean = str(col).strip().lower()
+                if col_clean in EXCLUDED_METADATA_KEYS:
+                    continue
+                
+                val = str(matched_row.get(col, '')).strip()
+                if not val or val.upper() in ['TH', 'TIADA', '-', '']:
+                    continue
+
+                # Cari skor TP (digit 1 hingga 6)
+                tp_match = re.search(r'\b([1-6])\b|tp\s*([1-6])', val, re.IGNORECASE)
                 if tp_match:
-                    tp_num = int(tp_match.group(1))
-                    if 1 <= tp_num <= 6:
-                        subjek_records.append({'Subjek': sub, 'TP': tp_num, 'TP_Str': f"TP {tp_num}"})
+                    tp_num = int(tp_match.group(1) if tp_match.group(1) else tp_match.group(2))
+                    
+                    display_subjek = str(col).strip()
+                    if display_subjek.lower().startswith('lajur_'):
+                        display_subjek = f"Subjek {display_subjek.split('_')[-1]}"
+                    elif '(' in display_subjek and 'TP' in display_subjek.upper():
+                        display_subjek = display_subjek.split('(')[0].strip()
+
+                    subjek_records.append({
+                        'Subjek': display_subjek,
+                        'TP': tp_num,
+                        'TP_Str': f"TP {tp_num}"
+                    })
 
             tp_data = pd.DataFrame(subjek_records)
 
