@@ -247,10 +247,10 @@ def read_idme_csv(uploaded_file):
             p_str = str(prev_row[i]).strip().replace('\n', ' ') if prev_row is not None and i < len(prev_row) else ""
             
             if not c_str or c_str.startswith('Unnamed'):
-                c_str = p_str if p_str else f"Subjek_{i+1}"
+                c_str = p_str if p_str and not p_str.startswith('Unnamed') else f"Subjek_{i+1}"
             elif p_str and p_str.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not p_str.upper().startswith('SEKOLAH'):
                 if 'TP' in c_str.upper(): c_str = p_str
-                elif c_str.upper() != p_str.upper(): c_str = f"{p_str} ({c_str})"
+                elif c_str.upper() != p_str.upper(): c_str = f"{p_str}"
 
             final_cols.append(c_str)
 
@@ -445,7 +445,7 @@ with tab_utama:
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
-            # PINTAR: Imbas SEMUA lajur bagi rekod murid untuk mengekstrak nilai TP
+            # EMBAS DAN AMBIL NAMA SUBJEK ASAL
             subjek_records = []
             for col in df_all.columns:
                 if col in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
@@ -459,16 +459,15 @@ with tab_utama:
                 if not val or val.upper() in ['TH', 'TIADA', '-', '']:
                     continue
 
-                # Cari skor TP (digit 1 hingga 6)
+                # Extrak skor TP
                 tp_match = re.search(r'\b([1-6])\b|tp\s*([1-6])', val, re.IGNORECASE)
                 if tp_match:
                     tp_num = int(tp_match.group(1) if tp_match.group(1) else tp_match.group(2))
                     
+                    # Bersihkan Nama Subjek daripada tag TP jika ada
                     display_subjek = str(col).strip()
-                    if display_subjek.lower().startswith('lajur_'):
-                        display_subjek = f"Subjek {display_subjek.split('_')[-1]}"
-                    elif '(' in display_subjek and 'TP' in display_subjek.upper():
-                        display_subjek = display_subjek.split('(')[0].strip()
+                    display_subjek = re.sub(r'\s*\([^)]*TP[^)]*\)', '', display_subjek, flags=re.IGNORECASE)
+                    display_subjek = re.sub(r'\s*\(TP\d*\)', '', display_subjek, flags=re.IGNORECASE)
 
                     subjek_records.append({
                         'Subjek': display_subjek,
@@ -505,13 +504,14 @@ with tab_utama:
                     'TP 3': '#f59e0b', 'TP 2': '#f97316', 'TP 1': '#ef4444'
                 }
 
-                # SUSUN ATUR SEBELAH-MENYEBELAH: GRAF (KIRI) | RUJUKAN JADUAL TP (KANAN)
-                col_graf, col_jadual = st.columns([12, 11], gap="medium")
+                # NISBAH LAJUR KIRI & KANAN (KIRI LEBIH LUAS SUPAYA GRAF LEBAR DAN JELAS)
+                col_graf, col_jadual = st.columns([1.4, 1.0], gap="large")
 
                 with col_graf:
                     st.subheader("📊 Skor Tahap Penguasaan (TP)")
                     
-                    chart_height = max(420, len(tp_data) * 32)
+                    # Tinggi Graf disesuaikan mengikut bilangan subjek
+                    chart_height = max(450, len(tp_data) * 36)
 
                     fig_bar = px.bar(
                         tp_data, 
@@ -524,11 +524,21 @@ with tab_utama:
                     )
                     
                     fig_bar.update_layout(
-                        xaxis=dict(range=[0, 6.7], dtick=1, title="<b>Tahap Penguasaan (TP)</b>", tickfont=dict(size=12)),
-                        yaxis=dict(title="", categoryorder='total ascending', tickfont=dict(size=12, color="#1e293b"), automargin=True),
+                        xaxis=dict(
+                            range=[0, 6.8], 
+                            dtick=1, 
+                            title="<b>Tahap Penguasaan (TP)</b>", 
+                            tickfont=dict(size=12)
+                        ),
+                        yaxis=dict(
+                            title="", 
+                            categoryorder='total ascending', 
+                            tickfont=dict(size=13, color="#0f172a"),
+                            automargin=True
+                        ),
                         showlegend=False,
                         height=chart_height,
-                        margin=dict(l=0, r=30, t=10, b=30),  # l=0 untuk rapat ke kiri tanpa ruang kosong
+                        margin=dict(l=10, r=40, t=10, b=30),
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)'
                     )
