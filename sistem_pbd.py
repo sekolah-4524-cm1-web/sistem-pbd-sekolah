@@ -183,12 +183,6 @@ KATA_KUNCI_BUKAN_SUBJEK = [
     'menengah', 'kebangsaan', 'status', 'catatan'
 ]
 
-IGNOR_NAMA = [
-    'LELAKI', 'PEREMPUAN', 'ISLAM', 'MELAYU', 'PBD', 'TINGKATAN', 'SEKOLAH', 'KPM', 
-    'LAPORAN', 'JABATAN', 'KEMENTERIAN', 'KOD', 'GURU', 'TARIKH', 'TAHUN', 'MURID', 
-    'SMK', 'MENENGAH', 'KEBANGSAAN', 'DATO', 'SYED', 'OMAR'
-]
-
 def clean_ic_digits(val):
     if pd.isna(val) or val is None: return ""
     s = str(val).strip()
@@ -219,25 +213,57 @@ def dapatkan_tafsiran_tp(tp_val):
     return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
 
 def read_idme_csv(uploaded_file):
+    """Pembaca CSV idMe Pintar dengan Sokongan Auto-Pemisah (Comma, Semicolon, Tab) & Multi-Encoding"""
     try:
-        try:
-            raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False)
-        except Exception:
-            uploaded_file.seek(0)
-            raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False, encoding='latin1')
+        raw_df = None
+        encodings = ['utf-8', 'latin1', 'cp1252', 'utf-8-sig']
+        
+        # 1. Cuba pembacaan auto-detect delimiter
+        for enc in encodings:
+            try:
+                uploaded_file.seek(0)
+                raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False, sep=None, engine='python', encoding=enc)
+                if raw_df is not None and raw_df.shape[1] > 1:
+                    break
+            except Exception:
+                continue
 
+        # 2. Jika auto-detect gagal, cuba senarai pemisah manual
+        if raw_df is None or raw_df.shape[1] <= 1:
+            for sep_char in [';', ',', '\t']:
+                for enc in encodings:
+                    try:
+                        uploaded_file.seek(0)
+                        raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False, sep=sep_char, encoding=enc)
+                        if raw_df is not None and raw_df.shape[1] > 1:
+                            break
+                    except Exception:
+                        continue
+                if raw_df is not None and raw_df.shape[1] > 1:
+                    break
+
+        if raw_df is None or raw_df.empty:
+            return None
+
+        # 3. Cari baris header
         header_idx = None
         for idx, row in raw_df.iterrows():
-            cell_vals = [str(v).strip().upper() for v in row.values if pd.notna(v) and str(v).strip() != '']
-            has_nama = any(c in ['NAMA', 'NAMA MURID', 'NAMA PELAJAR'] or (c.startswith('NAMA') and not any(x in c for x in ['SEKOLAH', 'GURU', 'KELAS'])) for c in cell_vals)
-            has_ic = any(any(k in c for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN']) and 'SEKOLAH' not in c for c in cell_vals)
-            
-            if has_nama and has_ic:
+            row_str = " ".join([str(v).upper() for v in row.values if pd.notna(v)])
+            if ('NAMA' in row_str) and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN', 'NO_KP', 'NO.KP']):
                 header_idx = idx
                 break
 
+        # Fallback 1: Cari baris berhampiran nombor IC pertama
         if header_idx is None:
-            return None
+            for idx, row in raw_df.iterrows():
+                row_str = " ".join([str(v) for v in row.values if pd.notna(v)])
+                if re.search(r'\b\d{12}\b', row_str) or re.search(r'\b\d{6}-\d{2}-\d{4}\b', row_str):
+                    header_idx = max(0, idx - 1)
+                    break
+
+        # Fallback 2: Guna baris pertama jika tiada ditemui
+        if header_idx is None:
+            header_idx = 0
 
         header_row = raw_df.iloc[header_idx].values
         prev_row = raw_df.iloc[header_idx - 1].values if header_idx > 0 else None
@@ -247,18 +273,21 @@ def read_idme_csv(uploaded_file):
             c_str = str(col_val).strip().replace('\n', ' ')
             p_str = str(prev_row[i]).strip().replace('\n', ' ') if prev_row is not None and i < len(prev_row) else ""
             
-            if p_str and p_str.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not p_str.upper().startswith('SEKOLAH'):
-                if 'TP' in c_str.upper() or c_str == '' or c_str.startswith('Unnamed'):
+            if not c_str or c_str.startswith('Unnamed'):
+                c_str = p_str if p_str else f"Lajur_{i+1}"
+            elif p_str and p_str.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not p_str.upper().startswith('SEKOLAH'):
+                if 'TP' in c_str.upper():
                     c_str = p_str
-                else:
-                    c_str = f"{p_str} ({c_str})" if c_str.upper() != p_str.upper() else p_str
+                elif c_str.upper() != p_str.upper():
+                    c_str = f"{p_str} ({c_str})"
 
-            final_cols.append(c_str if c_str else f"Lajur_{i}")
+            final_cols.append(c_str)
 
         df = raw_df.iloc[header_idx + 1:].copy()
         df.columns = final_cols
         df = df.dropna(how='all').copy()
 
+        # Garis semula nama lajur NO_KP & NAMA
         col_ic, col_nama = None, None
         for c in df.columns:
             c_u = str(c).upper().strip()
@@ -272,13 +301,14 @@ def read_idme_csv(uploaded_file):
         if col_nama: rename_map[col_nama] = 'NAMA'
         if rename_map: df = df.rename(columns=rename_map)
 
+        # Penapis hanya baris murid yang mempunyai No. KP sah (>= 8 digit)
         if 'NO_KP' in df.columns:
             df['NO_KP_CLEAN'] = df['NO_KP'].apply(clean_ic_digits)
             df = df[df['NO_KP_CLEAN'].str.len() >= 8].copy()
             df = df.drop(columns=['NO_KP_CLEAN'])
 
-        # Buang lajur kosong / duplikasi lajur yang tidak sah
-        valid_cols = [c for c in df.columns if str(c).strip() != '' and not str(c).startswith('Lajur_')]
+        # Buang lajur kosong
+        valid_cols = [c for c in df.columns if str(c).strip() != '']
         df = df[valid_cols].copy()
 
         return df
@@ -409,7 +439,6 @@ with tab_utama:
         user_ic_digits = clean_ic_digits(search_ic_input)
         matched_row = None
 
-        # PADANAN STRICT: Hanya semak lajur NO_KP sahaja
         if user_ic_digits and lajur_ic:
             for _, row in df_all.iterrows():
                 target_ic = str(row.get(lajur_ic, ''))
@@ -435,7 +464,6 @@ with tab_utama:
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
-            # Ekstrak TP bagi subjek yang sah
             subjek_records = []
             for sub in senarai_subjek:
                 val = matched_row.get(sub, '')
