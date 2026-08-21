@@ -179,12 +179,14 @@ st.markdown(f"""
 KATA_KUNCI_BUKAN_SUBJEK = [
     'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp', 'nokp',
     'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata',
-    'tingkatan_system', 'kelas_system', 'sekolah', 'kpm', 'laporan', 'guru', 'tarikh', 'kod'
+    'tingkatan_system', 'kelas_system', 'sekolah', 'kpm', 'laporan', 'guru', 'tarikh', 'kod',
+    'menengah', 'kebangsaan', 'status', 'catatan'
 ]
 
 IGNOR_NAMA = [
     'LELAKI', 'PEREMPUAN', 'ISLAM', 'MELAYU', 'PBD', 'TINGKATAN', 'SEKOLAH', 'KPM', 
-    'LAPORAN', 'JABATAN', 'KEMENTERIAN', 'KOD', 'GURU', 'TARIKH', 'TAHUN', 'MURID', 'SMK'
+    'LAPORAN', 'JABATAN', 'KEMENTERIAN', 'KOD', 'GURU', 'TARIKH', 'TAHUN', 'MURID', 
+    'SMK', 'MENENGAH', 'KEBANGSAAN', 'DATO', 'SYED', 'OMAR'
 ]
 
 def clean_ic_digits(val):
@@ -208,7 +210,7 @@ def dapatkan_tafsiran_tp(tp_val):
     return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
 
 def read_idme_csv(uploaded_file):
-    """Membaca CSV idMe dan secara automatik memotong tajuk laporan di baris atas."""
+    """Membaca CSV idMe dan secara automatik memotong tajuk sekolah / header laporan di baris atas."""
     try:
         try:
             raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False)
@@ -216,13 +218,24 @@ def read_idme_csv(uploaded_file):
             uploaded_file.seek(0)
             raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False, encoding='latin1')
 
-        # Cari baris tajuk jadual sebenar (baris yang mengandungi 'NAMA' dan 'KP/IC')
         header_idx = None
         for idx, row in raw_df.iterrows():
-            row_str = " ".join([str(v).upper() for v in row.values if pd.notna(v)])
-            if 'NAMA' in row_str and any(k in row_str for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO']):
+            cell_vals = [str(v).strip().upper() for v in row.values if pd.notna(v) and str(v).strip() != '']
+            
+            # Cari baris yang mengandungi tajuk lajur NAMA dan KP (mengelakkan tajuk nama sekolah)
+            has_nama = any(c in ['NAMA', 'NAMA MURID', 'NAMA PELAJAR'] or (c.startswith('NAMA') and not any(x in c for x in ['SEKOLAH', 'GURU', 'KELAS'])) for c in cell_vals)
+            has_ic = any(any(k in c for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN']) and 'SEKOLAH' not in c for c in cell_vals)
+            
+            if has_nama and has_ic:
                 header_idx = idx
                 break
+
+        if header_idx is None:
+            for idx, row in raw_df.iterrows():
+                row_str = " ".join([str(v).upper() for v in row.values if pd.notna(v)])
+                if 'NAMA' in row_str and any(k in row_str for k in ['KP', 'IC', 'MYKAD']) and 'SEKOLAH MENENGAH' not in row_str:
+                    header_idx = idx
+                    break
 
         if header_idx is not None:
             new_cols = [str(val).strip().replace('\n', ' ') for val in raw_df.iloc[header_idx].values]
@@ -233,13 +246,12 @@ def read_idme_csv(uploaded_file):
 
         df = df.dropna(how='all').copy()
 
-        # Kesan lajur NO_KP dan NAMA
         col_ic, col_nama = None, None
         for c in df.columns:
             c_u = str(c).upper().strip()
-            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO. KP', 'NO KP']):
+            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO. KP', 'NO KP']) and 'SEKOLAH' not in c_u:
                 col_ic = c
-            elif not col_nama and any(k in c_u for k in ['NAMA', 'NAME', 'MURID', 'PELAJAR']):
+            elif not col_nama and any(k in c_u for k in ['NAMA', 'NAME', 'MURID', 'PELAJAR']) and 'SEKOLAH' not in c_u and 'GURU' not in c_u:
                 col_nama = c
 
         rename_map = {}
@@ -247,17 +259,21 @@ def read_idme_csv(uploaded_file):
         if col_nama: rename_map[col_nama] = 'NAMA'
         if rename_map: df = df.rename(columns=rename_map)
 
-        # Penapis baris: Ambil baris yang mempunyai digit IC sahaja
+        # PENAPIS UTAMA: Hanya kekalkan baris murid yang mengandungi digit IC sah (panjang >= 8)
         if 'NO_KP' in df.columns:
             df['NO_KP_CLEAN'] = df['NO_KP'].apply(clean_ic_digits)
             df = df[df['NO_KP_CLEAN'].str.len() >= 8].copy()
             df = df.drop(columns=['NO_KP_CLEAN'])
 
-        # Bersihkan nama jika terdapat perkataan sampah
+        # Buang lajur kosong / Unnamed
+        valid_cols = [c for c in df.columns if str(c).strip() != '' and not str(c).startswith('Unnamed')]
+        df = df[valid_cols].copy()
+
+        # Bersihkan nama murid jika terdapat teks sampah header yang terlepas
         if 'NAMA' in df.columns:
             for idx in df.index:
                 nama_val = str(df.at[idx, 'NAMA']).strip().upper()
-                if not nama_val or any(ign in nama_val for ign in ['SEKOLAH', 'KPM', 'LAPORAN', 'NAN', 'NONE']):
+                if not nama_val or any(ign in nama_val for ign in ['SEKOLAH', 'KPM', 'LAPORAN', 'NAN', 'NONE', 'MENENGAH', 'KEBANGSAAN']):
                     for v in df.loc[idx].values:
                         v_clean = re.sub(r'[^a-zA-Z\s@\']', '', str(v)).strip().upper()
                         words = [w for w in v_clean.split() if len(w) > 1 and w not in IGNOR_NAMA]
@@ -317,13 +333,13 @@ with tab_pengurusan:
         with col_up1:
             st.markdown("**1. Maklumat Kelas & Fail CSV**")
             pilih_tingkatan = st.selectbox("Pilih Tingkatan:", ["Tingkatan 1", "Tingkatan 2", "Tingkatan 3", "Tingkatan 4", "Tingkatan 5"])
-            nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1 / 2 Amanah):", "")
+            nama_kelas = st.text_input("Nama Kelas (Contoh: 1 KRK 1 / 2 KRK 2):", "")
             uploaded_file = st.file_uploader("Pilih Fail CSV (idMe / Excel):", type=["csv"])
             
             if uploaded_file:
                 df_upload = read_idme_csv(uploaded_file)
                 if df_upload is not None and not df_upload.empty:
-                    st.info("💡 **SEMAKAN TERAKHIR:** Sila semak nama murid dan No. KP di bawah sebelum menyimpan.")
+                    st.info("💡 **SEMAKAN TERAKHIR:** Semak senarai nama murid dan lajur subjek di bawah sebelum menyimpan.")
                     edited_df = st.data_editor(df_upload, use_container_width=True, hide_index=True)
                     
                     if st.button("💾 Simpan Data Secara Kekal", type="primary"):
@@ -415,7 +431,7 @@ with tab_utama:
 
         elif matched_row is not None:
             nama_murid = matched_row.get('NAMA', None) if lajur_nama else None
-            if not nama_murid or any(ign in str(nama_murid).upper() for ign in ['SEKOLAH', 'KPM', 'LAPORAN', 'NAN', 'NONE', 'MURID']):
+            if not nama_murid or any(ign in str(nama_murid).upper() for ign in ['SEKOLAH', 'KPM', 'LAPORAN', 'NAN', 'NONE', 'MURID', 'MENENGAH', 'KEBANGSAAN']):
                 for val in matched_row.values:
                     s_clean = re.sub(r'[^a-zA-Z\s@\']', '', str(val)).strip().upper()
                     words = [w for w in s_clean.split() if len(w) > 1 and w not in IGNOR_NAMA]
