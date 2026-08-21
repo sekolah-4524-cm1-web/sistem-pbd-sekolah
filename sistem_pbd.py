@@ -7,7 +7,9 @@ import re
 import base64
 import time
 
-# 1. Konfigurasi Halaman & Folder Storage Setempat
+# =========================================================
+# 1. KONFIGURASI HALAMAN & FOLDER STORAGE SETEMPAT
+# =========================================================
 st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide", page_icon="🎓")
 
 DATA_DIR = "data_pbd"
@@ -99,7 +101,7 @@ st.markdown("""
         color: #ffffff;
         padding: 16px;
         font-weight: 600;
-        font-size: 14px;
+        font-size: 15px;
         text-align: left;
     }
     .pbd-table td {
@@ -115,7 +117,7 @@ st.markdown("""
         font-weight: 700;
         color: white;
         display: inline-block;
-        font-size: 12px;
+        font-size: 13px;
         text-align: center;
         box-shadow: 0 2px 6px rgba(0,0,0,0.12);
     }
@@ -498,28 +500,54 @@ with tab_utama:
 
             st.markdown("---")
             if not tp_data.empty:
-                col_graf, col_jadual = st.columns([10, 12])
-
                 color_map = {
                     'TP 6': '#10b981', 'TP 5': '#22c55e', 'TP 4': '#3b82f6', 
                     'TP 3': '#f59e0b', 'TP 2': '#f97316', 'TP 1': '#ef4444'
                 }
 
-                with col_graf:
-                    st.subheader("📊 Pencapaian TP Mengikut Subjek")
-                    fig_bar = px.bar(tp_data, x='TP', y='Subjek', orientation='h', text='TP_Str', color='TP_Str', color_discrete_map=color_map, title="Skor TP Bagi Setiap Subjek")
-                    fig_bar.update_layout(xaxis=dict(range=[0, 6.5], dtick=1, title="Tahap Penguasaan (TP)"), yaxis=dict(title="", categoryorder='total ascending'), showlegend=False, height=450)
-                    fig_bar.update_traces(textposition='outside')
+                # TAB KEPUTUSAN UNTUK PAPARAN CLEAR & LEBIH BESAR
+                subtab_graf, subtab_jadual = st.tabs(["📊 Graf Bar Keputusan (Paparan Penuh)", "📋 Jadual & Tafsiran Subjek"])
+
+                with subtab_graf:
+                    st.subheader("📊 Skor Tahap Penguasaan (TP) Bagi Setiap Subjek")
+                    
+                    # Kira ketinggian dinamik supaya bar tidak tersempit apabila banyak subjek
+                    chart_height = max(450, len(tp_data) * 35)
+
+                    fig_bar = px.bar(
+                        tp_data, 
+                        x='TP', 
+                        y='Subjek', 
+                        orientation='h', 
+                        text='TP_Str', 
+                        color='TP_Str', 
+                        color_discrete_map=color_map
+                    )
+                    
+                    fig_bar.update_layout(
+                        xaxis=dict(range=[0, 6.8], dtick=1, title="<b>Tahap Penguasaan (TP)</b>", tickfont=dict(size=13)),
+                        yaxis=dict(title="", categoryorder='total ascending', tickfont=dict(size=13, color="#1e293b")),
+                        showlegend=False,
+                        height=chart_height,
+                        margin=dict(l=10, r=50, t=20, b=30),  # Menghapuskan ruang kosong sebelah kiri
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)'
+                    )
+                    fig_bar.update_traces(
+                        textposition='outside',
+                        textfont=dict(size=13, color="#0f172a", weight="bold"),
+                        cliponaxis=False
+                    )
                     st.plotly_chart(fig_bar, use_container_width=True)
 
-                with col_jadual:
+                with subtab_jadual:
                     st.subheader("📋 Senarai Pencapaian Setiap Subjek")
                     rows_html = ""
                     for _, row in tp_data.iterrows():
                         subjek_name = row['Subjek']
                         tp_val = row['TP']
                         tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
-                        rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #475569;'>{tafsiran_txt}</td></tr>"
+                        rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 14px; color: #475569;'>{tafsiran_txt}</td></tr>"
                     st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 32%;'>Subjek</th><th style='width: 23%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
 
                 st.markdown("---")
