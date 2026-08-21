@@ -99,25 +99,25 @@ st.markdown("""
     .pbd-table th {
         background: linear-gradient(90deg, #1e293b 0%, #334155 100%);
         color: #ffffff;
-        padding: 16px;
+        padding: 14px 16px;
         font-weight: 600;
-        font-size: 15px;
+        font-size: 14px;
         text-align: left;
     }
     .pbd-table td {
-        padding: 14px 16px;
+        padding: 12px 16px;
         border-bottom: 1px solid #f1f5f9;
         color: #334155;
-        font-size: 14px;
+        font-size: 13px;
     }
     .pbd-table tr:hover { background-color: #f8fafc; }
     .badge {
-        padding: 6px 16px;
+        padding: 5px 14px;
         border-radius: 20px;
         font-weight: 700;
         color: white;
         display: inline-block;
-        font-size: 13px;
+        font-size: 12px;
         text-align: center;
         box-shadow: 0 2px 6px rgba(0,0,0,0.12);
     }
@@ -505,14 +505,13 @@ with tab_utama:
                     'TP 3': '#f59e0b', 'TP 2': '#f97316', 'TP 1': '#ef4444'
                 }
 
-                # TAB KEPUTUSAN UNTUK PAPARAN CLEAR & LEBIH BESAR
-                subtab_graf, subtab_jadual = st.tabs(["📊 Graf Bar Keputusan (Paparan Penuh)", "📋 Jadual & Tafsiran Subjek"])
+                # SUSUN ATUR SEBELAH-MENYEBELAH: GRAF (KIRI) | RUJUKAN JADUAL TP (KANAN)
+                col_graf, col_jadual = st.columns([12, 11], gap="medium")
 
-                with subtab_graf:
-                    st.subheader("📊 Skor Tahap Penguasaan (TP) Bagi Setiap Subjek")
+                with col_graf:
+                    st.subheader("📊 Skor Tahap Penguasaan (TP)")
                     
-                    # Kira ketinggian dinamik supaya bar tidak tersempit apabila banyak subjek
-                    chart_height = max(450, len(tp_data) * 35)
+                    chart_height = max(420, len(tp_data) * 32)
 
                     fig_bar = px.bar(
                         tp_data, 
@@ -525,30 +524,30 @@ with tab_utama:
                     )
                     
                     fig_bar.update_layout(
-                        xaxis=dict(range=[0, 6.8], dtick=1, title="<b>Tahap Penguasaan (TP)</b>", tickfont=dict(size=13)),
-                        yaxis=dict(title="", categoryorder='total ascending', tickfont=dict(size=13, color="#1e293b")),
+                        xaxis=dict(range=[0, 6.7], dtick=1, title="<b>Tahap Penguasaan (TP)</b>", tickfont=dict(size=12)),
+                        yaxis=dict(title="", categoryorder='total ascending', tickfont=dict(size=12, color="#1e293b"), automargin=True),
                         showlegend=False,
                         height=chart_height,
-                        margin=dict(l=10, r=50, t=20, b=30),  # Menghapuskan ruang kosong sebelah kiri
+                        margin=dict(l=0, r=30, t=10, b=30),  # l=0 untuk rapat ke kiri tanpa ruang kosong
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)'
                     )
                     fig_bar.update_traces(
                         textposition='outside',
-                        textfont=dict(size=13, color="#0f172a", weight="bold"),
+                        textfont=dict(size=12, color="#0f172a", weight="bold"),
                         cliponaxis=False
                     )
                     st.plotly_chart(fig_bar, use_container_width=True)
 
-                with subtab_jadual:
-                    st.subheader("📋 Senarai Pencapaian Setiap Subjek")
+                with col_jadual:
+                    st.subheader("📋 Rujukan TP & Tafsiran Subjek")
                     rows_html = ""
                     for _, row in tp_data.iterrows():
                         subjek_name = row['Subjek']
                         tp_val = row['TP']
                         tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
-                        rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 14px; color: #475569;'>{tafsiran_txt}</td></tr>"
-                    st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 32%;'>Subjek</th><th style='width: 23%; text-align: center;'>Tahap Penguasaan</th><th style='width: 45%;'>Tafsiran & Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
+                        rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #475569;'>{tafsiran_txt}</td></tr>"
+                    st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 32%;'>Subjek</th><th style='width: 23%; text-align: center;'>Tahap</th><th style='width: 45%;'>Tafsiran Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
 
                 st.markdown("---")
                 st.subheader("📈 Analisis Taburan Penguasaan Murid")
