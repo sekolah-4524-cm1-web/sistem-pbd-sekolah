@@ -203,56 +203,45 @@ def dapatkan_tafsiran_tp(tp_val):
 def read_idme_csv(uploaded_file):
     try:
         raw_df = None
-        encodings = ['utf-8', 'latin1', 'cp1252', 'utf-8-sig']
+        encodings = ['utf-8', 'utf-8-sig', 'latin1', 'cp1252']
         
-        for sep_char in [None, ';', ',', '\t']:
-            for enc in encodings:
-                try:
-                    uploaded_file.seek(0)
-                    kw = {'header': None, 'dtype': str, 'keep_default_na': False, 'encoding': enc}
-                    if sep_char: kw['sep'] = sep_char
-                    else: kw['sep'] = None; kw['engine'] = 'python'
-                    
-                    temp = pd.read_csv(uploaded_file, **kw)
-                    if temp is not None and temp.shape[1] > 1:
-                        raw_df = temp
-                        break
-                except Exception: continue
-            if raw_df is not None and raw_df.shape[1] > 1: break
+        for enc in encodings:
+            try:
+                uploaded_file.seek(0)
+                temp = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False, encoding=enc)
+                if temp is not None and temp.shape[1] > 1:
+                    raw_df = temp
+                    break
+            except Exception: continue
 
         if raw_df is None or raw_df.empty: return None
 
         header_idx = None
-        for idx, row in raw_df.iterrows():
-            row_str = " ".join([str(v).upper() for v in row.values if pd.notna(v)])
-            if ('NAMA' in row_str) and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN', 'NO_KP', 'NO.KP', 'NO. KP']):
+        for idx in range(min(15, len(raw_df))):
+            row_str = " ".join([str(v).upper().strip() for v in raw_df.iloc[idx].values])
+            if 'NAMA' in row_str and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN', 'NO_KP', 'NO.KP', 'NO. KP']):
                 header_idx = idx
                 break
 
-        if header_idx is None:
-            for idx, row in raw_df.iterrows():
-                row_str = " ".join([str(v) for v in row.values if pd.notna(v)])
-                if re.search(r'\b\d{11,12}\b', clean_ic_digits(row_str)):
-                    header_idx = max(0, idx - 1)
-                    break
-
         if header_idx is None: header_idx = 0
 
-        header_row = raw_df.iloc[header_idx].values
-        prev_row = raw_df.iloc[header_idx - 1].values if header_idx > 0 else None
-
         final_cols = []
-        for i, col_val in enumerate(header_row):
-            c_str = str(col_val).strip().replace('\n', ' ')
-            p_str = str(prev_row[i]).strip().replace('\n', ' ') if prev_row is not None and i < len(prev_row) else ""
-            
-            if not c_str or c_str.startswith('Unnamed'):
-                c_str = p_str if p_str and not p_str.startswith('Unnamed') else f"Subjek_{i+1}"
-            elif p_str and p_str.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not p_str.upper().startswith('SEKOLAH'):
-                if 'TP' in c_str.upper(): c_str = p_str
-                elif c_str.upper() != p_str.upper(): c_str = f"{p_str}"
+        num_cols = raw_df.shape[1]
 
-            final_cols.append(c_str)
+        for c in range(num_cols):
+            val_curr = str(raw_df.iloc[header_idx, c]).strip().replace('\n', ' ') if header_idx < len(raw_df) else ""
+            val_prev = str(raw_df.iloc[header_idx - 1, c]).strip().replace('\n', ' ') if header_idx > 0 else ""
+
+            # Pilih nama tajuk asal subjek
+            title = ""
+            if val_prev and val_prev.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not val_prev.upper().startswith('SEKOLAH'):
+                title = val_prev
+            elif val_curr and not val_curr.startswith('Unnamed'):
+                title = val_curr
+            else:
+                title = val_prev if val_prev else f"Lajur_{c+1}"
+
+            final_cols.append(title)
 
         df = raw_df.iloc[header_idx + 1:].copy()
         df.columns = final_cols
@@ -265,21 +254,6 @@ def read_idme_csv(uploaded_file):
                 col_ic = c
             elif not col_nama and any(k in c_u for k in ['NAMA', 'NAME', 'MURID', 'PELAJAR']) and 'SEKOLAH' not in c_u and 'GURU' not in c_u:
                 col_nama = c
-
-        if not col_ic:
-            for c in df.columns:
-                sample = [clean_ic_digits(v) for v in df[c].dropna().head(15)]
-                if len(sample) > 0 and sum(1 for v in sample if len(v) in [11, 12]) / len(sample) >= 0.5:
-                    col_ic = c
-                    break
-
-        if not col_nama:
-            for c in df.columns:
-                if c == col_ic: continue
-                sample = [str(v).strip() for v in df[c].dropna().head(15)]
-                if len(sample) > 0 and sum(1 for v in sample if re.search(r'[a-zA-Z]{3,}', v) and 'SEKOLAH' not in v.upper()) / len(sample) >= 0.5:
-                    col_nama = c
-                    break
 
         rename_map = {}
         if col_ic: rename_map[col_ic] = 'NO_KP'
@@ -445,7 +419,7 @@ with tab_utama:
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
-            # EMBAS DAN AMBIL NAMA SUBJEK ASAL
+            # EMBAS DAN MENGAMBIL SKOR TP BERSAMA NAMA SUBJEK ASAL
             subjek_records = []
             for col in df_all.columns:
                 if col in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
@@ -464,7 +438,7 @@ with tab_utama:
                 if tp_match:
                     tp_num = int(tp_match.group(1) if tp_match.group(1) else tp_match.group(2))
                     
-                    # Bersihkan Nama Subjek daripada tag TP jika ada
+                    # Bersihkan teks header subjek
                     display_subjek = str(col).strip()
                     display_subjek = re.sub(r'\s*\([^)]*TP[^)]*\)', '', display_subjek, flags=re.IGNORECASE)
                     display_subjek = re.sub(r'\s*\(TP\d*\)', '', display_subjek, flags=re.IGNORECASE)
@@ -504,14 +478,13 @@ with tab_utama:
                     'TP 3': '#f59e0b', 'TP 2': '#f97316', 'TP 1': '#ef4444'
                 }
 
-                # NISBAH LAJUR KIRI & KANAN (KIRI LEBIH LUAS SUPAYA GRAF LEBAR DAN JELAS)
-                col_graf, col_jadual = st.columns([1.4, 1.0], gap="large")
+                # NISBAH LAJUR KIRI & KANAN
+                col_graf, col_jadual = st.columns([1.3, 1.0], gap="large")
 
                 with col_graf:
                     st.subheader("📊 Skor Tahap Penguasaan (TP)")
                     
-                    # Tinggi Graf disesuaikan mengikut bilangan subjek
-                    chart_height = max(450, len(tp_data) * 36)
+                    chart_height = max(450, len(tp_data) * 38)
 
                     fig_bar = px.bar(
                         tp_data, 
@@ -533,12 +506,12 @@ with tab_utama:
                         yaxis=dict(
                             title="", 
                             categoryorder='total ascending', 
-                            tickfont=dict(size=13, color="#0f172a"),
-                            automargin=True
+                            tickfont=dict(size=12, color="#0f172a")
                         ),
                         showlegend=False,
                         height=chart_height,
-                        margin=dict(l=10, r=40, t=10, b=30),
+                        # MARGIN KIRI 180px DITETAPKAN UNTUK NAMA SUBJEK & BAR YANG PANJANG JELAS
+                        margin=dict(l=180, r=40, t=10, b=40),
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)'
                     )
@@ -557,7 +530,7 @@ with tab_utama:
                         tp_val = row['TP']
                         tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
                         rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #475569;'>{tafsiran_txt}</td></tr>"
-                    st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 32%;'>Subjek</th><th style='width: 23%; text-align: center;'>Tahap</th><th style='width: 45%;'>Tafsiran Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
+                    st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 35%;'>Subjek</th><th style='width: 20%; text-align: center;'>Tahap</th><th style='width: 45%;'>Tafsiran Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
 
                 st.markdown("---")
                 st.subheader("📈 Analisis Taburan Penguasaan Murid")
