@@ -36,10 +36,7 @@ def get_base64_image(image_path):
 # =========================================================
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #f8fafc;
-    }
-    
+    .stApp { background-color: #f8fafc; }
     .header-banner {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #1e3a8a 100%);
         padding: 24px 30px;
@@ -51,7 +48,6 @@ st.markdown("""
         align-items: center;
         gap: 20px;
     }
-    
     .school-title {
         font-size: 32px;
         font-weight: 800;
@@ -62,7 +58,6 @@ st.markdown("""
         margin: 0;
         line-height: 1.2;
     }
-    
     .system-title {
         font-size: 17px;
         color: #e2e8f0;
@@ -71,7 +66,6 @@ st.markdown("""
         margin-bottom: 0;
         letter-spacing: 0.3px;
     }
-
     .profile-card {
         background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
         padding: 24px;
@@ -83,7 +77,6 @@ st.markdown("""
         border-bottom: 1px solid #e2e8f0;
         margin-bottom: 25px;
     }
-    
     .profile-tag {
         color: #3b82f6;
         font-size: 12px;
@@ -91,7 +84,6 @@ st.markdown("""
         letter-spacing: 1.2px;
         text-transform: uppercase;
     }
-
     .pbd-table {
         width: 100%;
         border-collapse: separate;
@@ -117,7 +109,6 @@ st.markdown("""
         font-size: 14px;
     }
     .pbd-table tr:hover { background-color: #f8fafc; }
-
     .badge {
         padding: 6px 16px;
         border-radius: 20px;
@@ -157,11 +148,7 @@ st.markdown("""
 # BANNER HEADER & LOGO SEKOLAH
 # =========================================================
 logo_b64 = get_base64_image(LOGO_PATH)
-
-if logo_b64:
-    logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="85" style="border-radius: 10px; padding: 4px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 10px rgba(0,0,0,0.15);">'
-else:
-    logo_html = '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 85px; height: 85px; display: flex; align-items: center; justify-content: center; font-size: 38px;">🏫</div>'
+logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="85" style="border-radius: 10px; padding: 4px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 10px rgba(0,0,0,0.15);">' if logo_b64 else '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 85px; height: 85px; display: flex; align-items: center; justify-content: center; font-size: 38px;">🏫</div>'
 
 st.markdown(f"""
 <div class="header-banner">
@@ -174,7 +161,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# FUNGSI PEMBANTU & PROCESSOR CSV PINTAR
+# FUNGSI PEMBANTU & PEMBACA CSV PINTAR
 # =========================================================
 KATA_KUNCI_BUKAN_SUBJEK = [
     'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp', 'nokp',
@@ -184,21 +171,22 @@ KATA_KUNCI_BUKAN_SUBJEK = [
 ]
 
 def clean_ic_digits(val):
+    """Pembersih Digit IC Teguh"""
     if pd.isna(val) or val is None: return ""
-    s = str(val).strip()
-    if 'e+' in s.lower() or 'e-' in s.lower():
+    s = str(val).strip().replace('="', '').replace('"', '').replace("'", "")
+    if 'e' in s.lower():
         try: s = f"{float(s):.0f}"
         except Exception: pass
     elif s.endswith('.0'): s = s[:-2]
     return re.sub(r'\D', '', s)
 
 def is_ic_match(ic1, ic2):
+    """Sistem Padanan IC Pintar dengan zfill(12)"""
     c1 = clean_ic_digits(ic1)
     c2 = clean_ic_digits(ic2)
     if not c1 or not c2: return False
     if c1 == c2: return True
-    if len(c1) == 11 and '0' + c1 == c2: return True
-    if len(c2) == 11 and '0' + c2 == c1: return True
+    if c1.zfill(12) == c2.zfill(12): return True
     return False
 
 def dapatkan_tafsiran_tp(tp_val):
@@ -213,57 +201,45 @@ def dapatkan_tafsiran_tp(tp_val):
     return tafsiran.get(int(tp_val), ("Tidak Nyata", "badge-tp3"))
 
 def read_idme_csv(uploaded_file):
-    """Pembaca CSV idMe Pintar dengan Sokongan Auto-Pemisah (Comma, Semicolon, Tab) & Multi-Encoding"""
+    """Pembaca CSV idMe Pintar dengan Content-Based Detection"""
     try:
         raw_df = None
         encodings = ['utf-8', 'latin1', 'cp1252', 'utf-8-sig']
         
-        # 1. Cuba pembacaan auto-detect delimiter
-        for enc in encodings:
-            try:
-                uploaded_file.seek(0)
-                raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False, sep=None, engine='python', encoding=enc)
-                if raw_df is not None and raw_df.shape[1] > 1:
-                    break
-            except Exception:
-                continue
+        # 1. Buka fail dengan variasi pemisah
+        for sep_char in [None, ';', ',', '\t']:
+            for enc in encodings:
+                try:
+                    uploaded_file.seek(0)
+                    kw = {'header': None, 'dtype': str, 'keep_default_na': False, 'encoding': enc}
+                    if sep_char: kw['sep'] = sep_char
+                    else: kw['sep'] = None; kw['engine'] = 'python'
+                    
+                    temp = pd.read_csv(uploaded_file, **kw)
+                    if temp is not None and temp.shape[1] > 1:
+                        raw_df = temp
+                        break
+                except Exception: continue
+            if raw_df is not None and raw_df.shape[1] > 1: break
 
-        # 2. Jika auto-detect gagal, cuba senarai pemisah manual
-        if raw_df is None or raw_df.shape[1] <= 1:
-            for sep_char in [';', ',', '\t']:
-                for enc in encodings:
-                    try:
-                        uploaded_file.seek(0)
-                        raw_df = pd.read_csv(uploaded_file, header=None, dtype=str, keep_default_na=False, sep=sep_char, encoding=enc)
-                        if raw_df is not None and raw_df.shape[1] > 1:
-                            break
-                    except Exception:
-                        continue
-                if raw_df is not None and raw_df.shape[1] > 1:
-                    break
+        if raw_df is None or raw_df.empty: return None
 
-        if raw_df is None or raw_df.empty:
-            return None
-
-        # 3. Cari baris header
+        # 2. Cari baris header
         header_idx = None
         for idx, row in raw_df.iterrows():
             row_str = " ".join([str(v).upper() for v in row.values if pd.notna(v)])
-            if ('NAMA' in row_str) and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN', 'NO_KP', 'NO.KP']):
+            if ('NAMA' in row_str) and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN', 'NO_KP', 'NO.KP', 'NO. KP']):
                 header_idx = idx
                 break
 
-        # Fallback 1: Cari baris berhampiran nombor IC pertama
         if header_idx is None:
             for idx, row in raw_df.iterrows():
                 row_str = " ".join([str(v) for v in row.values if pd.notna(v)])
-                if re.search(r'\b\d{12}\b', row_str) or re.search(r'\b\d{6}-\d{2}-\d{4}\b', row_str):
+                if re.search(r'\b\d{11,12}\b', clean_ic_digits(row_str)):
                     header_idx = max(0, idx - 1)
                     break
 
-        # Fallback 2: Guna baris pertama jika tiada ditemui
-        if header_idx is None:
-            header_idx = 0
+        if header_idx is None: header_idx = 0
 
         header_row = raw_df.iloc[header_idx].values
         prev_row = raw_df.iloc[header_idx - 1].values if header_idx > 0 else None
@@ -276,10 +252,8 @@ def read_idme_csv(uploaded_file):
             if not c_str or c_str.startswith('Unnamed'):
                 c_str = p_str if p_str else f"Lajur_{i+1}"
             elif p_str and p_str.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not p_str.upper().startswith('SEKOLAH'):
-                if 'TP' in c_str.upper():
-                    c_str = p_str
-                elif c_str.upper() != p_str.upper():
-                    c_str = f"{p_str} ({c_str})"
+                if 'TP' in c_str.upper(): c_str = p_str
+                elif c_str.upper() != p_str.upper(): c_str = f"{p_str} ({c_str})"
 
             final_cols.append(c_str)
 
@@ -287,31 +261,43 @@ def read_idme_csv(uploaded_file):
         df.columns = final_cols
         df = df.dropna(how='all').copy()
 
-        # Garis semula nama lajur NO_KP & NAMA
+        # 3. Pengecaman Lajur IC & NAMA (Pintar: Tajuk + Kandungan)
         col_ic, col_nama = None, None
         for c in df.columns:
             c_u = str(c).upper().strip()
-            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO KP']) and 'SEKOLAH' not in c_u:
+            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO KP', 'PENGENALAN', 'DOKUMEN', 'PASPORT']) and 'SEKOLAH' not in c_u:
                 col_ic = c
             elif not col_nama and any(k in c_u for k in ['NAMA', 'NAME', 'MURID', 'PELAJAR']) and 'SEKOLAH' not in c_u and 'GURU' not in c_u:
                 col_nama = c
+
+        # Kandungan Fallback jika tajuk gagal
+        if not col_ic:
+            for c in df.columns:
+                sample = [clean_ic_digits(v) for v in df[c].dropna().head(15)]
+                if len(sample) > 0 and sum(1 for v in sample if len(v) in [11, 12]) / len(sample) >= 0.5:
+                    col_ic = c
+                    break
+
+        if not col_nama:
+            for c in df.columns:
+                if c == col_ic: continue
+                sample = [str(v).strip() for v in df[c].dropna().head(15)]
+                if len(sample) > 0 and sum(1 for v in sample if re.search(r'[a-zA-Z]{3,}', v) and 'SEKOLAH' not in v.upper()) / len(sample) >= 0.5:
+                    col_nama = c
+                    break
 
         rename_map = {}
         if col_ic: rename_map[col_ic] = 'NO_KP'
         if col_nama: rename_map[col_nama] = 'NAMA'
         if rename_map: df = df.rename(columns=rename_map)
 
-        # Penapis hanya baris murid yang mempunyai No. KP sah (>= 8 digit)
+        # Penapis baris murid sahaja
         if 'NO_KP' in df.columns:
             df['NO_KP_CLEAN'] = df['NO_KP'].apply(clean_ic_digits)
             df = df[df['NO_KP_CLEAN'].str.len() >= 8].copy()
             df = df.drop(columns=['NO_KP_CLEAN'])
 
-        # Buang lajur kosong
-        valid_cols = [c for c in df.columns if str(c).strip() != '']
-        df = df[valid_cols].copy()
-
-        return df
+        return df[ [c for c in df.columns if str(c).strip() != ''] ].copy()
     except Exception as e:
         st.error(f"Ralat membaca CSV: {e}")
         return None
@@ -425,8 +411,16 @@ with tab_utama:
     if df_all is None or df_all.empty:
         st.warning("⚠️ **Tiada data tersimpan.** Hubungi Admin untuk muat naik data kelas terlebih dahulu di Tab 'Pengurusan Data'.")
     else:
-        lajur_ic = next((c for c in df_all.columns if 'NO_KP' in str(c).upper() or 'IC' in str(c).upper() or 'KP' in str(c).upper()), None)
+        # Carian Lajur IC & NAMA Dinamik
+        lajur_ic = next((c for c in df_all.columns if any(k in str(c).upper() for k in ['NO_KP', 'IC', 'KP', 'PENGENALAN'])), None)
         lajur_nama = next((c for c in df_all.columns if 'NAMA' in str(c).upper()), None)
+
+        if not lajur_ic:
+            for c in df_all.columns:
+                sample = [clean_ic_digits(v) for v in df_all[c].dropna().head(15)]
+                if len(sample) > 0 and sum(1 for v in sample if len(v) in [11, 12]) / len(sample) >= 0.5:
+                    lajur_ic = c
+                    break
 
         senarai_subjek = []
         for col in df_all.columns:
@@ -453,12 +447,13 @@ with tab_utama:
                 for _, r in df_all.iterrows():
                     n = r[lajur_nama] if lajur_nama and lajur_nama in r else "Nama Tidak Nyata"
                     ic_raw = r[lajur_ic] if lajur_ic and lajur_ic in r else ""
-                    preview_list.append({"Nama Murid": n, "No. IC Asal": ic_raw, "Digit IC": clean_ic_digits(ic_raw), "Kelas": r.get('Kelas_System', '-')})
+                    preview_list.append({"Nama Murid": n, "No. IC Asal": ic_raw, "Digit IC Cleaned": clean_ic_digits(ic_raw), "Kelas": r.get('Kelas_System', '-')})
                 st.dataframe(pd.DataFrame(preview_list), use_container_width=True)
 
         elif matched_row is not None:
             nama_murid = matched_row.get(lajur_nama, 'REKOD TANPA NAMA')
             ic_display = clean_ic_digits(matched_row.get(lajur_ic, ''))
+            if len(ic_display) == 11: ic_display = "0" + ic_display
             if not ic_display: ic_display = user_ic_digits
 
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
