@@ -125,6 +125,15 @@ st.markdown("""
     .badge-tp3 { background: linear-gradient(135deg, #d97706, #f59e0b); color: #fff; }
     .badge-tp2 { background: linear-gradient(135deg, #ea580c, #f97316); }
     .badge-tp1 { background: linear-gradient(135deg, #dc2626, #ef4444); }
+    
+    .analisis-box {
+        background: #f0fdf4;
+        border-left: 5px solid #22c55e;
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    }
 
     .stTabs [data-baseweb="tab-list"] { gap: 8px; }
     .stTabs [data-baseweb="tab"] {
@@ -161,7 +170,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# FUNGSI PEMBANTU & PEMBACA CSV PINTAR (DIKEMAS KINI!)
+# FUNGSI PEMBANTU & PEMBACA CSV PINTAR
 # =========================================================
 def clean_ic_digits(val):
     if pd.isna(val) or val is None: return ""
@@ -207,7 +216,6 @@ def read_idme_csv(uploaded_file):
 
         if raw_df is None or raw_df.empty: return None
 
-        # CARI BARIS TAJUK SEBENAR (YANG ADA PERKATAAN NAMA)
         header_idx = 0
         for idx in range(min(20, len(raw_df))):
             row_str = " ".join([str(v).upper().strip() for v in raw_df.iloc[idx].values])
@@ -215,7 +223,6 @@ def read_idme_csv(uploaded_file):
                 header_idx = idx
                 break
 
-        # TANGKAP NAMA LAJUR (SUBJEK) TERUS DARI BARIS TERSEBUT
         cols = raw_df.iloc[header_idx].values
         final_cols = []
         for c, val in enumerate(cols):
@@ -239,7 +246,6 @@ def read_idme_csv(uploaded_file):
         df.columns = unique_cols 
         df = df.dropna(how='all').copy()
 
-        # KENAL PASTI LAJUR NAMA & NO KP
         col_ic, col_nama = None, None
         for c in df.columns:
             c_u = str(c).upper().strip()
@@ -316,7 +322,6 @@ with tab_pengurusan:
             if uploaded_file:
                 df_upload = read_idme_csv(uploaded_file)
                 if df_upload is not None and not df_upload.empty:
-                    st.info("💡 **SEMAKAN TERAKHIR:** Pastikan jadual kelihatan kemas sebelum menekan butang simpan.")
                     edited_df = st.data_editor(df_upload, use_container_width=True, hide_index=True)
                     
                     if st.button("💾 Simpan Data Secara Kekal", type="primary"):
@@ -351,7 +356,6 @@ with tab_pengurusan:
                 info_df = pd.DataFrame(senarai_info)
                 info_df.index = range(1, len(info_df) + 1)
                 st.dataframe(info_df[["Fail / Kelas", "Jumlah Murid"]], use_container_width=True)
-                st.markdown("---")
                 
                 st.markdown("**🗑️ Padam Data Kelas**")
                 pilih_padam = st.selectbox("Pilih Kelas Untuk Dipadam:", info_df["Fail / Kelas"].tolist())
@@ -440,6 +444,7 @@ with tab_utama:
                 total_subjek = len(tp_data)
                 tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
                 tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
+                purata_tp = tp_data['TP'].mean()
 
                 st.markdown(f"""
                 <div class="profile-card">
@@ -451,11 +456,11 @@ with tab_utama:
 
                 m1, m2, m3, m4 = st.columns(4)
                 with m1: st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
-                with m2: st.metric("Subjek Penguasaan Tinggi (TP 5-6)", f"{tp_cemerlang} Subjek")
-                with m3: st.metric("Subjek Bimbingan (TP 1-2)", f"{tp_perlu_perhatian} Subjek")
+                with m2: st.metric("Subjek Penguasaan Tinggi", f"{tp_cemerlang} Subjek", help="Subjek yang mencapai TP 5 atau TP 6")
+                with m3: st.metric("Subjek Bimbingan", f"{tp_perlu_perhatian} Subjek", help="Subjek pada TP 1 atau TP 2")
                 with m4:
                     tp_max = tp_data['TP'].max()
-                    st.metric("Pencapaian TP Tertinggi", f"TP {tp_max}")
+                    st.metric("Purata Keseluruhan", f"TP {purata_tp:.1f}")
 
                 st.markdown("---")
                 
@@ -505,3 +510,27 @@ with tab_utama:
                         tafsiran_txt, badge_cls = dapatkan_tafsiran_tp(tp_val)
                         rows_html += f"<tr><td><b>{subjek_name}</b></td><td style='text-align: center;'><span class='badge {badge_cls}'>TP {tp_val}</span></td><td style='font-size: 13px; color: #475569;'>{tafsiran_txt}</td></tr>"
                     st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 35%;'>Subjek</th><th style='width: 20%; text-align: center;'>Tahap</th><th style='width: 45%;'>Tafsiran Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
+                
+                # =========================================================
+                # BAHAGIAN ANALISIS PRESTASI (BARU DITAMBAH)
+                # =========================================================
+                st.markdown("---")
+                st.subheader("📝 Analisis & Ulasan Prestasi")
+                
+                subjek_cemerlang_list = tp_data[tp_data['TP'] >= 5]['Subjek'].tolist()
+                subjek_lemah_list = tp_data[tp_data['TP'] <= 3]['Subjek'].tolist()
+                
+                ulasan_html = f"<div class='analisis-box'>"
+                ulasan_html += f"<p style='font-size: 16px; margin-bottom: 10px;'>Berdasarkan data pentaksiran, <b>{nama_murid}</b> telah dinilai dalam <b>{total_subjek} mata pelajaran</b> dan mencatatkan purata Tahap Penguasaan keseluruhan pada <b>TP {purata_tp:.1f}</b>.</p>"
+                
+                if subjek_cemerlang_list:
+                    ulasan_html += f"<p style='font-size: 15px; margin-bottom: 8px;'>🌟 <b>Kekuatan:</b> Murid ini mempamerkan penguasaan yang amat memberangsangkan (TP5 dan ke atas) dalam subjek <b>{', '.join(subjek_cemerlang_list)}</b>. Prestasi ini menunjukkan pemahaman yang mendalam dan harus dikekalkan.</p>"
+                
+                if subjek_lemah_list:
+                    ulasan_html += f"<p style='font-size: 15px; margin-bottom: 8px;'>⚠️ <b>Fokus Penambahbaikan:</b> Terdapat keperluan untuk memberi tumpuan dan bimbingan tambahan bagi subjek <b>{', '.join(subjek_lemah_list)}</b>. Latihan berterusan dari guru dan ibu bapa amat digalakkan untuk meningkatkan potensi murid ini.</p>"
+                elif purata_tp >= 4.0:
+                    ulasan_html += "<p style='font-size: 15px; margin-bottom: 8px;'>✨ <b>Pencapaian Konsisten:</b> Secara keseluruhannya, murid ini tidak mempunyai subjek di tahap bimbingan kritikal (TP1-TP3) dan berada di landasan yang tepat dengan penguasaan yang cemerlang.</p>"
+                    
+                ulasan_html += "</div>"
+                
+                st.markdown(ulasan_html, unsafe_allow_html=True)
