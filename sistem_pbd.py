@@ -16,7 +16,7 @@ DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = "admin123"
-LOGO_PATH = "logoSMKDSO.jpg"
+LOGO_PATH = "logo.png"
 
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
@@ -161,7 +161,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # =========================================================
-# FUNGSI PEMBANTU & PEMBACA CSV PINTAR
+# FUNGSI PEMBANTU & PEMBACA CSV PINTAR (DIKEMAS KINI!)
 # =========================================================
 def clean_ic_digits(val):
     if pd.isna(val) or val is None: return ""
@@ -207,40 +207,23 @@ def read_idme_csv(uploaded_file):
 
         if raw_df is None or raw_df.empty: return None
 
+        # CARI BARIS TAJUK SEBENAR (YANG ADA PERKATAAN NAMA)
         header_idx = 0
         for idx in range(min(20, len(raw_df))):
             row_str = " ".join([str(v).upper().strip() for v in raw_df.iloc[idx].values])
-            if 'NAMA' in row_str and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'PENGENALAN', 'NO_KP', 'NO.KP']):
+            if 'NAMA' in row_str and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'PENGENALAN', 'NO_KP', 'NO.KP', 'MYKID']):
                 header_idx = idx
                 break
 
+        # TANGKAP NAMA LAJUR (SUBJEK) TERUS DARI BARIS TERSEBUT
+        cols = raw_df.iloc[header_idx].values
         final_cols = []
-        num_cols = raw_df.shape[1]
-
-        for c in range(num_cols):
-            col_texts = []
-            for r in range(header_idx + 1):
-                val = str(raw_df.iloc[r, c]).strip().replace('\n', ' ')
-                if val and not val.startswith('Unnamed') and not val.startswith('Lajur') and len(val) < 40:
-                    val_u = val.upper()
-                    if val_u not in ['BIL', 'NO', 'NO.', 'BIL.'] and not val.isdigit():
-                        if val not in col_texts:
-                            col_texts.append(val)
-
-            chosen = ""
-            for txt in reversed(col_texts):
-                txt_u = txt.upper()
-                if txt_u not in ['NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM', 'BANGSA', 'TP', 'PENTAKSIRAN']:
-                    chosen = txt
-                    break
+        for c, val in enumerate(cols):
+            val = str(val).strip().replace('\n', ' ')
+            if val.lower() == 'nan' or val == '':
+                val = f"LAJUR_KOSONG_{c+1}"
+            final_cols.append(val)
             
-            if not chosen and col_texts:
-                chosen = col_texts[-1]
-            if not chosen:
-                chosen = f"Subjek_Tiada_Nama_{c+1}"
-
-            final_cols.append(chosen)
-
         unique_cols = []
         seen = {}
         for col in final_cols:
@@ -256,6 +239,7 @@ def read_idme_csv(uploaded_file):
         df.columns = unique_cols 
         df = df.dropna(how='all').copy()
 
+        # KENAL PASTI LAJUR NAMA & NO KP
         col_ic, col_nama = None, None
         for c in df.columns:
             c_u = str(c).upper().strip()
@@ -421,37 +405,27 @@ with tab_utama:
             kelas_murid = matched_row.get('Kelas_System', '-')
 
             subjek_records = []
-            abaikan_lajur = [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System', 'NO_KP', 'NAMA']
+            abaikan_lajur = [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System', 'NO_KP', 'NAMA', 'Jantina', 'Bil.', 'Bil']
             
             for col in df_all.columns:
-                if col in abaikan_lajur: continue
+                if col in abaikan_lajur or "LAJUR_KOSONG" in str(col).upper(): continue
                 
-                # Baca nilai pada sel ini & buang ruang kosong
                 val = str(matched_row.get(col, '')).strip().upper()
-                
                 tp_num = None
                 
-                # Ujian 1: Jika nilai adalah sekadar "1" hingga "6"
                 if val in ['1', '2', '3', '4', '5', '6']:
                     tp_num = int(val)
                 else:
-                    # Ujian 2: Mengesan jika tertulis "TP 4", "TP:4", "TP4"
                     match1 = re.search(r'TP\s*[:\-]?\s*([1-6])', val)
                     if match1:
                         tp_num = int(match1.group(1))
                     else:
-                        # Ujian 3: Mengesan jika tertulis "TAHAP PENGUASAAN 4", "TAHAP 4" dsb
                         match2 = re.search(r'TAHAP(?:PENGUASAAN)?\s*([1-6])', val.replace(" ", ""))
                         if match2:
                             tp_num = int(match2.group(1))
 
-                # Jika dijumpai TP, kita kumpulkan
                 if tp_num is not None:
                     display_subjek = str(col).strip()
-                    display_subjek = re.sub(r'Subjek_Tiada_Nama_\d+', 'Subjek', display_subjek)
-                    if len(display_subjek) > 40:
-                        display_subjek = display_subjek[:40] + "..."
-
                     subjek_records.append({
                         'Subjek': display_subjek,
                         'TP': tp_num,
@@ -461,12 +435,7 @@ with tab_utama:
             tp_data = pd.DataFrame(subjek_records)
             
             if tp_data.empty:
-                st.warning("⚠️ **Tiada data Tahap Penguasaan (TP) dapat dipisahkan (extracted) dari profil murid ini.**")
-                
-                # KOTAK DIAGNOSTIK BARU
-                with st.expander("🛠️ BANTUAN DIAGNOSTIK (Sila klik dan salin kotak di bawah)", expanded=True):
-                    st.markdown("Oleh kerana graf masih tidak keluar, sistem memaparkan bagaimana **Data Sebenar CSV** dibaca oleh sistem. Sila *copy* semua teks di bawah ini dan beri kepada saya (AI) supaya saya boleh membina kod tapisan yang 100% tepat:")
-                    st.json(matched_row.to_dict())
+                st.warning("⚠️ **Tiada data Tahap Penguasaan (TP) dapat dipisahkan dari profil murid ini.**")
             else:
                 total_subjek = len(tp_data)
                 tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
@@ -517,7 +486,7 @@ with tab_utama:
                             automargin=False
                         ),
                         bargap=0.2, showlegend=False, height=chart_height,
-                        margin=dict(l=350, r=40, t=10, b=30),
+                        margin=dict(l=150, r=40, t=10, b=30),
                         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
                     )
                     fig_bar.update_traces(
