@@ -16,7 +16,6 @@ DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = "admin123"
-LOGO_PATH = "logo.JPG"
 
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
@@ -156,8 +155,11 @@ st.markdown("""
 # =========================================================
 # BANNER HEADER & LOGO SEKOLAH
 # =========================================================
+LOGO_PATH = "logo.jpg"
 logo_b64 = get_base64_image(LOGO_PATH)
-logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="85" style="border-radius: 10px; padding: 4px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 10px rgba(0,0,0,0.15);">' if logo_b64 else '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 85px; height: 85px; display: flex; align-items: center; justify-content: center; font-size: 38px;">🏫</div>'
+
+# Gunakan imej lalai (emoji) jika gambar tidak dijumpai, jika ada guna image/jpeg
+logo_html = f'<img src="data:image/jpeg;base64,{logo_b64}" width="85" style="border-radius: 10px; padding: 4px; background: rgba(255, 255, 255, 0.95); box-shadow: 0 4px 10px rgba(0,0,0,0.15);">' if logo_b64 else '<div style="background: rgba(255,255,255,0.15); border-radius: 14px; width: 85px; height: 85px; display: flex; align-items: center; justify-content: center; font-size: 38px;">🏫</div>'
 
 st.markdown(f"""
 <div class="header-banner">
@@ -512,7 +514,7 @@ with tab_utama:
                     st.markdown(f"<table class='pbd-table'><thead><tr><th style='width: 35%;'>Subjek</th><th style='width: 20%; text-align: center;'>Tahap</th><th style='width: 45%;'>Tafsiran Status</th></tr></thead><tbody>{rows_html}</tbody></table>", unsafe_allow_html=True)
                 
                 # =========================================================
-                # BAHAGIAN ANALISIS PRESTASI (BARU DITAMBAH)
+                # BAHAGIAN ANALISIS PRESTASI
                 # =========================================================
                 st.markdown("---")
                 st.subheader("📝 Analisis & Ulasan Prestasi")
