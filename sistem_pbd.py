@@ -216,32 +216,38 @@ def read_idme_csv(uploaded_file):
 
         if raw_df is None or raw_df.empty: return None
 
-        header_idx = None
-        for idx in range(min(15, len(raw_df))):
+        # Cari baris tajuk utama (Header Row)
+        header_idx = 0
+        for idx in range(min(20, len(raw_df))):
             row_str = " ".join([str(v).upper().strip() for v in raw_df.iloc[idx].values])
-            if 'NAMA' in row_str and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'KAD PENGENALAN', 'NO_KP', 'NO.KP', 'NO. KP']):
+            if 'NAMA' in row_str and any(k in row_str for k in ['KP', 'IC', 'MYKAD', 'PENGENALAN', 'NO_KP', 'NO.KP']):
                 header_idx = idx
                 break
-
-        if header_idx is None: header_idx = 0
 
         final_cols = []
         num_cols = raw_df.shape[1]
 
         for c in range(num_cols):
-            val_curr = str(raw_df.iloc[header_idx, c]).strip().replace('\n', ' ') if header_idx < len(raw_df) else ""
-            val_prev = str(raw_df.iloc[header_idx - 1, c]).strip().replace('\n', ' ') if header_idx > 0 else ""
+            candidates = []
+            for r_offset in [-1, 0, 1]:
+                r_idx = header_idx + r_offset
+                if 0 <= r_idx < len(raw_df):
+                    val = str(raw_df.iloc[r_idx, c]).strip().replace('\n', ' ')
+                    if val and not val.startswith('Unnamed') and val.upper() not in ['BIL', 'NO', 'NO.', 'BIL.']:
+                        candidates.append(val)
 
-            # Pilih nama tajuk asal subjek
-            title = ""
-            if val_prev and val_prev.upper() not in ['BIL', 'NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM'] and not val_prev.upper().startswith('SEKOLAH'):
-                title = val_prev
-            elif val_curr and not val_curr.startswith('Unnamed'):
-                title = val_curr
-            else:
-                title = val_prev if val_prev else f"Lajur_{c+1}"
+            chosen_title = ""
+            for cand in candidates:
+                cand_u = cand.upper()
+                if cand_u not in ['NAMA', 'NO KP', 'NO. KP', 'NO.KP', 'IC', 'JANTINA', 'KAUM', 'TP', 'TAHAP PENGUASAN']:
+                    chosen_title = cand
+                    break
+            if not chosen_title and candidates:
+                chosen_title = candidates[0]
+            if not chosen_title:
+                chosen_title = f"Subjek {c+1}"
 
-            final_cols.append(title)
+            final_cols.append(chosen_title)
 
         df = raw_df.iloc[header_idx + 1:].copy()
         df.columns = final_cols
@@ -250,9 +256,9 @@ def read_idme_csv(uploaded_file):
         col_ic, col_nama = None, None
         for c in df.columns:
             c_u = str(c).upper().strip()
-            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO KP', 'PENGENALAN']) and 'SEKOLAH' not in c_u:
+            if not col_ic and any(k in c_u for k in ['KP', 'IC', 'KAD', 'MYKAD', 'NO_KP', 'NO.KP', 'NO KP', 'PENGENALAN']):
                 col_ic = c
-            elif not col_nama and any(k in c_u for k in ['NAMA', 'NAME', 'MURID', 'PELAJAR']) and 'SEKOLAH' not in c_u and 'GURU' not in c_u:
+            elif not col_nama and any(k in c_u for k in ['NAMA', 'NAME', 'MURID', 'PELAJAR']):
                 col_nama = c
 
         rename_map = {}
@@ -265,7 +271,7 @@ def read_idme_csv(uploaded_file):
             df = df[df['NO_KP_CLEAN'].str.len() >= 8].copy()
             df = df.drop(columns=['NO_KP_CLEAN'])
 
-        return df[ [c for c in df.columns if str(c).strip() != ''] ].copy()
+        return df
     except Exception as e:
         st.error(f"Ralat membaca CSV: {e}")
         return None
@@ -419,29 +425,26 @@ with tab_utama:
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
-            # EMBAS DAN MENGAMBIL SKOR TP BERSAMA NAMA SUBJEK ASAL
+            # EMBAS DENGAN NAMA SUBJEK SEBENAR
             subjek_records = []
             for col in df_all.columns:
                 if col in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']:
                     continue
                 
                 col_clean = str(col).strip().lower()
-                if col_clean in EXCLUDED_METADATA_KEYS:
+                if col_clean in EXCLUDED_METADATA_KEYS or 'unnamed' in col_clean:
                     continue
                 
                 val = str(matched_row.get(col, '')).strip()
                 if not val or val.upper() in ['TH', 'TIADA', '-', '']:
                     continue
 
-                # Extrak skor TP
                 tp_match = re.search(r'\b([1-6])\b|tp\s*([1-6])', val, re.IGNORECASE)
                 if tp_match:
                     tp_num = int(tp_match.group(1) if tp_match.group(1) else tp_match.group(2))
                     
-                    # Bersihkan teks header subjek
                     display_subjek = str(col).strip()
                     display_subjek = re.sub(r'\s*\([^)]*TP[^)]*\)', '', display_subjek, flags=re.IGNORECASE)
-                    display_subjek = re.sub(r'\s*\(TP\d*\)', '', display_subjek, flags=re.IGNORECASE)
 
                     subjek_records.append({
                         'Subjek': display_subjek,
@@ -478,13 +481,12 @@ with tab_utama:
                     'TP 3': '#f59e0b', 'TP 2': '#f97316', 'TP 1': '#ef4444'
                 }
 
-                # NISBAH LAJUR KIRI & KANAN
-                col_graf, col_jadual = st.columns([1.3, 1.0], gap="large")
+                col_graf, col_jadual = st.columns([1.5, 1.0], gap="large")
 
                 with col_graf:
                     st.subheader("📊 Skor Tahap Penguasaan (TP)")
                     
-                    chart_height = max(450, len(tp_data) * 38)
+                    chart_height = max(420, len(tp_data) * 45)
 
                     fig_bar = px.bar(
                         tp_data, 
@@ -498,20 +500,21 @@ with tab_utama:
                     
                     fig_bar.update_layout(
                         xaxis=dict(
-                            range=[0, 6.8], 
-                            dtick=1, 
+                            range=[0, 6.9], 
+                            tickvals=[1, 2, 3, 4, 5, 6],
                             title="<b>Tahap Penguasaan (TP)</b>", 
                             tickfont=dict(size=12)
                         ),
                         yaxis=dict(
                             title="", 
                             categoryorder='total ascending', 
-                            tickfont=dict(size=12, color="#0f172a")
+                            tickfont=dict(size=13, color="#0f172a"),
+                            automargin=True # Automargin aktif supaya nama subjek panjang terpapar sempurna tanpa potong ruang bar
                         ),
+                        bargap=0.25,
                         showlegend=False,
                         height=chart_height,
-                        # MARGIN KIRI 180px DITETAPKAN UNTUK NAMA SUBJEK & BAR YANG PANJANG JELAS
-                        margin=dict(l=180, r=40, t=10, b=40),
+                        margin=dict(l=10, r=40, t=10, b=30),
                         paper_bgcolor='rgba(0,0,0,0)',
                         plot_bgcolor='rgba(0,0,0,0)'
                     )
