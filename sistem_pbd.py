@@ -16,7 +16,7 @@ DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = "admin123"
-LOGO_PATH = "logo.png"
+LOGO_PATH = "logoSMKDSO.png"
 
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
