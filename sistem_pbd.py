@@ -230,8 +230,7 @@ def read_idme_csv(uploaded_file):
             col_texts = []
             for r in range(header_idx + 1):
                 val = str(raw_df.iloc[r, c]).strip().replace('\n', ' ')
-                # ABAIKAN teks yang terlalu panjang (metadata idMe seperti "Sistem Pengurusan Pentaksiran Bersepadu")
-                # ABAIKAN juga teks default pandas (Unnamed, Lajur)
+                # ABAIKAN teks metadata yang panjang
                 if val and not val.startswith('Unnamed') and not val.startswith('Lajur') and len(val) < 40:
                     val_u = val.upper()
                     if val_u not in ['BIL', 'NO', 'NO.', 'BIL.'] and not val.isdigit():
@@ -252,8 +251,21 @@ def read_idme_csv(uploaded_file):
 
             final_cols.append(chosen)
 
+        # ======== PENYELESAIAN RALAT: PASTIKAN NAMA LAJUR UNIK ========
+        unique_cols = []
+        seen = {}
+        for col in final_cols:
+            col_str = str(col).strip()
+            if col_str not in seen:
+                seen[col_str] = 1
+                unique_cols.append(col_str)
+            else:
+                unique_cols.append(f"{col_str}_{seen[col_str]}")
+                seen[col_str] += 1
+        # ===============================================================
+
         df = raw_df.iloc[header_idx + 1:].copy()
-        df.columns = final_cols
+        df.columns = unique_cols # Gunakan lajur yang telah dipastikan unik
         df = df.dropna(how='all').copy()
 
         col_ic, col_nama = None, None
