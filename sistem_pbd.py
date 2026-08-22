@@ -163,13 +163,6 @@ st.markdown(f"""
 # =========================================================
 # FUNGSI PEMBANTU & PEMBACA CSV PINTAR
 # =========================================================
-EXCLUDED_METADATA_KEYS = {
-    'bil', 'bil.', 'no', 'no.', 'nama', 'ic', 'kp', 'no kp', 'no. kp', 'no.kp', 'nokp',
-    'tingkatan', 'kelas', 'jantina', 'kaum', 'bangsa', 'agregat', 'jumlah', 'purata',
-    'tingkatan_system', 'kelas_system', 'sekolah', 'kpm', 'laporan', 'guru', 'tarikh', 'kod',
-    'menengah', 'kebangsaan', 'status', 'catatan', 'no_kp', 'nama murid', 'nama pelajar', 'ulasan'
-}
-
 def clean_ic_digits(val):
     if pd.isna(val) or val is None: return ""
     s = str(val).strip().replace('="', '').replace('"', '').replace("'", "")
@@ -344,7 +337,7 @@ with tab_pengurusan:
             if uploaded_file:
                 df_upload = read_idme_csv(uploaded_file)
                 if df_upload is not None and not df_upload.empty:
-                    st.info("💡 **SEMAKAN TERAKHIR:** Pastikan tiada lagi 'Lajur_X' sebelum menekan butang simpan.")
+                    st.info("💡 **SEMAKAN TERAKHIR:** Pastikan jadual kelihatan kemas sebelum menekan butang simpan.")
                     edited_df = st.data_editor(df_upload, use_container_width=True, hide_index=True)
                     
                     if st.button("💾 Simpan Data Secara Kekal", type="primary"):
@@ -432,26 +425,27 @@ with tab_utama:
             tingkatan_murid = matched_row.get('Tingkatan_System', '-')
             kelas_murid = matched_row.get('Kelas_System', '-')
 
-            # EXTRAK SKOR TP
+            # ======================================================================
+            # PENYELESAIAN "TIADA ANALISIS": Jangan tapis nama lajur, asalkan ada TP
+            # ======================================================================
             subjek_records = []
+            
+            abaikan_lajur = [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System', 'NO_KP', 'NAMA']
+            
             for col in df_all.columns:
-                if col in [lajur_ic, lajur_nama, 'Tingkatan_System', 'Kelas_System']: continue
-                
-                col_clean = str(col).strip().lower()
-                if col_clean in EXCLUDED_METADATA_KEYS or 'unnamed' in col_clean or 'lajur' in col_clean: continue
+                if col in abaikan_lajur: continue
                 
                 val = str(matched_row.get(col, '')).strip()
-                if not val or val.upper() in ['TH', 'TIADA', '-', '']: continue
-
+                
+                # Cari markah TP (sama ada bentuk "TP 4" atau hanya angka "4")
                 tp_match = re.search(r'\b([1-6])\b|tp\s*([1-6])', val, re.IGNORECASE)
                 if tp_match:
                     tp_num = int(tp_match.group(1) if tp_match.group(1) else tp_match.group(2))
                     
-                    # Bersihkan teks nama subjek yang dipaparkan
                     display_subjek = str(col).strip()
                     display_subjek = re.sub(r'Subjek_Tiada_Nama_\d+', 'Subjek', display_subjek)
-                    if len(display_subjek) > 35:
-                        display_subjek = display_subjek[:35] + "..."
+                    if len(display_subjek) > 40:
+                        display_subjek = display_subjek[:40] + "..."
 
                     subjek_records.append({
                         'Subjek': display_subjek,
@@ -460,28 +454,32 @@ with tab_utama:
                     })
 
             tp_data = pd.DataFrame(subjek_records)
-            total_subjek = len(tp_data)
-            tp_cemerlang = len(tp_data[tp_data['TP'] >= 5]) if not tp_data.empty else 0
-            tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2]) if not tp_data.empty else 0
+            
+            if tp_data.empty:
+                st.warning("⚠️ **Tiada data Tahap Penguasaan (TP) dijumpai untuk murid ini.** Pastikan fail CSV yang dimuat naik mengandungi rekod TP (contoh: TP 3, TP 4).")
+            else:
+                total_subjek = len(tp_data)
+                tp_cemerlang = len(tp_data[tp_data['TP'] >= 5])
+                tp_perlu_perhatian = len(tp_data[tp_data['TP'] <= 2])
 
-            st.markdown(f"""
-            <div class="profile-card">
-                <span class="profile-tag">PROFIL PENTAKSIRAN INDIVIDU — SMK DATO' SYED OMAR</span>
-                <h2 style="margin: 6px 0; color: #0f172a; font-size: 26px; font-weight: 700;">{nama_murid}</h2>
-                <p style="margin: 0; font-size: 15px; color: #475569;">Tingkatan / Kelas: <b style="color: #1e293b;">{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b style="color: #1e293b;">{ic_display}</b></p>
-            </div>
-            """, unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class="profile-card">
+                    <span class="profile-tag">PROFIL PENTAKSIRAN INDIVIDU — SMK DATO' SYED OMAR</span>
+                    <h2 style="margin: 6px 0; color: #0f172a; font-size: 26px; font-weight: 700;">{nama_murid}</h2>
+                    <p style="margin: 0; font-size: 15px; color: #475569;">Tingkatan / Kelas: <b style="color: #1e293b;">{tingkatan_murid} ({kelas_murid})</b> &nbsp;|&nbsp; No. KP: <b style="color: #1e293b;">{ic_display}</b></p>
+                </div>
+                """, unsafe_allow_html=True)
 
-            m1, m2, m3, m4 = st.columns(4)
-            with m1: st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
-            with m2: st.metric("Subjek Penguasaan Tinggi (TP 5-6)", f"{tp_cemerlang} Subjek")
-            with m3: st.metric("Subjek Bimbingan (TP 1-2)", f"{tp_perlu_perhatian} Subjek")
-            with m4:
-                tp_max = tp_data['TP'].max() if not tp_data.empty else 0
-                st.metric("Pencapaian TP Tertinggi", f"TP {tp_max}")
+                m1, m2, m3, m4 = st.columns(4)
+                with m1: st.metric("Jumlah Subjek Dinilai", f"{total_subjek} Subjek")
+                with m2: st.metric("Subjek Penguasaan Tinggi (TP 5-6)", f"{tp_cemerlang} Subjek")
+                with m3: st.metric("Subjek Bimbingan (TP 1-2)", f"{tp_perlu_perhatian} Subjek")
+                with m4:
+                    tp_max = tp_data['TP'].max()
+                    st.metric("Pencapaian TP Tertinggi", f"TP {tp_max}")
 
-            st.markdown("---")
-            if not tp_data.empty:
+                st.markdown("---")
+                
                 color_map = {
                     'TP 6': '#10b981', 'TP 5': '#22c55e', 'TP 4': '#3b82f6', 
                     'TP 3': '#f59e0b', 'TP 2': '#f97316', 'TP 1': '#ef4444'
@@ -509,7 +507,7 @@ with tab_utama:
                             automargin=False
                         ),
                         bargap=0.2, showlegend=False, height=chart_height,
-                        margin=dict(l=350, r=40, t=10, b=30), # Margin kiri dilebarkan ke 350
+                        margin=dict(l=350, r=40, t=10, b=30),
                         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
                     )
                     fig_bar.update_traces(
