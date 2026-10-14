@@ -15,7 +15,7 @@ st.set_page_config(page_title="PBD - SMK Dato' Syed Omar", layout="wide", page_i
 DATA_DIR = "data_pbd"
 os.makedirs(DATA_DIR, exist_ok=True)
 
-ADMIN_PASSWORD = "admin123"
+ADMIN_PASSWORD = "2@345&*1"
 
 if 'is_admin' not in st.session_state:
     st.session_state['is_admin'] = False
